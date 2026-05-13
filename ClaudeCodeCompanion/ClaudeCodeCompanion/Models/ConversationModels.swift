@@ -3,12 +3,31 @@ import Foundation
 // MARK: - Project
 
 /// A project derived from a folder under ~/.claude/projects/
+/// Worktree folders (containing `--claude-worktrees-`) are merged into their
+/// parent project. `additionalPaths` holds the worktree folder URLs.
 struct Project: Identifiable, Hashable {
     let id: String
     let displayName: String
-    let path: URL
+    let path: URL                   // primary (base) project path
+    var additionalPaths: [URL]      // worktree paths merged into this project
     var sessionCount: Int
     var lastActivityDate: Date?
+
+    /// All paths belonging to this project (base + worktrees).
+    var allPaths: [URL] { [path] + additionalPaths }
+
+    /// Whether a given filesystem path belongs to this project.
+    func ownsPath(_ testPath: String) -> Bool {
+        allPaths.contains { $0.path == testPath }
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
+
+    static func == (lhs: Project, rhs: Project) -> Bool {
+        lhs.id == rhs.id
+    }
 }
 
 // MARK: - ConversationSession
@@ -97,10 +116,63 @@ struct SearchResult: Identifiable {
     let id: Int
     let sessionId: String
     let projectPath: String
+    let messageUuid: String
     let messageType: String
     let timestamp: Date
     let snippet: String
     let fullText: String
     let contextBefore: String
     let contextAfter: String
+
+    var projectDisplayName: String {
+        let url = URL(fileURLWithPath: projectPath)
+        let folderName = url.lastPathComponent
+        // Strip worktree suffix — worktrees are merged with parent projects
+        let baseName: String
+        if let worktreeRange = folderName.range(of: "--claude-worktrees-") {
+            baseName = String(folderName[..<worktreeRange.lowerBound])
+        } else {
+            baseName = folderName
+        }
+        let components = baseName.split(separator: "-", omittingEmptySubsequences: true).map(String.init)
+        let knownPrefixes = ["Users", "home", "var", "tmp", "opt"]
+        var meaningfulStart = 0
+        if let codeIndex = components.lastIndex(of: "Code"), codeIndex + 1 < components.count {
+            meaningfulStart = codeIndex + 1
+        } else {
+            for (i, component) in components.enumerated() {
+                if !knownPrefixes.contains(component) {
+                    if i > 0 && knownPrefixes.contains(components[i - 1]) {
+                        meaningfulStart = i + 1
+                    } else {
+                        meaningfulStart = i
+                    }
+                    break
+                }
+            }
+        }
+        let meaningful = Array(components[min(meaningfulStart, components.count)...])
+        return meaningful.isEmpty ? (components.last ?? folderName) : meaningful.joined(separator: " ")
+    }
+
+    func dynamicSnippet(query: String, contextLines: Int) -> String {
+        let lines = fullText.components(separatedBy: .newlines)
+        let queryLower = query.lowercased()
+
+        for (index, line) in lines.enumerated() {
+            if line.lowercased().contains(queryLower) {
+                let start = max(0, index - contextLines)
+                let end = min(lines.count - 1, index + contextLines)
+                let snippetLines = lines[start...end]
+                let joined = snippetLines.joined(separator: "\n")
+                return joined.replacingOccurrences(
+                    of: query,
+                    with: "<mark>\(query)</mark>",
+                    options: .caseInsensitive
+                )
+            }
+        }
+
+        return snippet
+    }
 }

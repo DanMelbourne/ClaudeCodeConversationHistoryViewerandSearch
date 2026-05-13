@@ -22,7 +22,6 @@ struct ConversationView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(filteredMessages.enumerated()), id: \.element.id) { index, message in
-                        // Date divider if gap > 30 minutes from previous message
                         if shouldShowDateDivider(at: index) {
                             DateDivider(date: message.timestamp)
                                 .padding(.vertical, 8)
@@ -30,8 +29,14 @@ struct ConversationView: View {
 
                         if appViewModel.viewMode == .raw {
                             RawMessageView(message: message)
+                                .id(message.id)
                         } else {
-                            MessageView(message: message, showSystemMessages: appViewModel.showSystemMessages)
+                            MessageView(
+                                message: message,
+                                showSystemMessages: appViewModel.showSystemMessages,
+                                isHighlighted: appViewModel.scrollToMessageId == message.id
+                            )
+                            .id(message.id)
                         }
                     }
                 }
@@ -41,6 +46,20 @@ struct ConversationView: View {
             .overlay(alignment: .topTrailing) {
                 systemMessageToggle
                     .padding(12)
+            }
+            .onChange(of: appViewModel.scrollToMessageId) { _, messageId in
+                guard let messageId else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        proxy.scrollTo(messageId, anchor: .center)
+                    }
+                }
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(4))
+                    withAnimation(.easeOut(duration: 0.8)) {
+                        appViewModel.scrollToMessageId = nil
+                    }
+                }
             }
         }
     }
@@ -143,19 +162,17 @@ private struct DateDivider: View {
 private struct MessageView: View {
     let message: ParsedMessage
     let showSystemMessages: Bool
+    var isHighlighted: Bool = false
 
     var body: some View {
         if message.type == .system && !showSystemMessages {
             EmptyView()
         } else {
             HStack(alignment: .top, spacing: 10) {
-                // Avatar
                 avatar
                     .frame(width: 28, height: 28)
 
-                // Content
                 VStack(alignment: .leading, spacing: 4) {
-                    // Header
                     HStack(spacing: 6) {
                         Text(roleName)
                             .font(.caption)
@@ -167,7 +184,6 @@ private struct MessageView: View {
                             .foregroundStyle(.tertiary)
                     }
 
-                    // Content blocks
                     VStack(alignment: .leading, spacing: 6) {
                         ForEach(message.blocks) { block in
                             ContentBlockView(block: block)
@@ -179,7 +195,17 @@ private struct MessageView: View {
                 }
             }
             .padding(.vertical, 6)
+            .padding(.horizontal, isHighlighted ? 4 : 0)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(isHighlighted ? DesignConstants.accentColor.opacity(0.12) : Color.clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(isHighlighted ? DesignConstants.accentColor.opacity(0.4) : Color.clear, lineWidth: 2)
+            )
             .textSelection(.enabled)
+            .animation(.easeInOut(duration: 0.3), value: isHighlighted)
         }
     }
 

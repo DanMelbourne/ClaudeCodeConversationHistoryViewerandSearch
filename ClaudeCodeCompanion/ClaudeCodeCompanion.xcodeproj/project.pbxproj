@@ -24,6 +24,9 @@
 		E10000010000000000000015 /* SearchResultsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E20000010000000000000015; };
 		E10000010000000000000016 /* ClaudeMDEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E20000010000000000000016; };
 		E10000010000000000000017 /* DetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E20000010000000000000017; };
+		E10000010000000000000020 /* ConversationSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = E20000010000000000000020; };
+		E10000010000000000000021 /* SourcesManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E20000010000000000000021; };
+		E10000010000000000000022 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E20000010000000000000022; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -47,6 +50,9 @@
 		E20000010000000000000017 /* DetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetailView.swift; sourceTree = "<group>"; };
 		E20000010000000000000018 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		E20000010000000000000019 /* ClaudeCodeCompanion.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ClaudeCodeCompanion.entitlements; sourceTree = "<group>"; };
+		E20000010000000000000020 /* ConversationSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationSource.swift; sourceTree = "<group>"; };
+		E20000010000000000000021 /* SourcesManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourcesManagerView.swift; sourceTree = "<group>"; };
+		E20000010000000000000022 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -85,6 +91,7 @@
 				E40000010000000000000004 /* Views */,
 				E40000010000000000000005 /* Services */,
 				E40000010000000000000010 /* Resources */,
+				E20000010000000000000022 /* Assets.xcassets */,
 			);
 			path = ClaudeCodeCompanion;
 			sourceTree = "<group>";
@@ -93,6 +100,7 @@
 			isa = PBXGroup;
 			children = (
 				E20000010000000000000003 /* ConversationModels.swift */,
+				E20000010000000000000020 /* ConversationSource.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -115,8 +123,17 @@
 				E40000010000000000000008 /* Conversation */,
 				E40000010000000000000009 /* Search */,
 				E40000010000000000000011 /* Editor */,
+				E40000010000000000000012 /* Settings */,
 			);
 			path = Views;
+			sourceTree = "<group>";
+		};
+		E40000010000000000000012 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				E20000010000000000000021 /* SourcesManagerView.swift */,
+			);
+			path = Settings;
 			sourceTree = "<group>";
 		};
 		E40000010000000000000005 /* Services */ = {
@@ -184,12 +201,21 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		E60000010000000000000002 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E10000010000000000000022 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		E50000010000000000000001 /* ClaudeCodeCompanion */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = E70000010000000000000003 /* Build configuration list for PBXNativeTarget "ClaudeCodeCompanion" */;
 			buildPhases = (
 				E60000010000000000000001 /* Sources */,
 				E30000010000000000000001 /* Frameworks */,
+				E60000010000000000000002 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -255,6 +281,8 @@
 				E10000010000000000000015 /* SearchResultsView.swift in Sources */,
 				E10000010000000000000016 /* ClaudeMDEditorView.swift in Sources */,
 				E10000010000000000000017 /* DetailView.swift in Sources */,
+				E10000010000000000000020 /* ConversationSource.swift in Sources */,
+				E10000010000000000000021 /* SourcesManagerView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

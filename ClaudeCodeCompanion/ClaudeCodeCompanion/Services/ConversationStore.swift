@@ -66,6 +66,22 @@ class ConversationStore {
         )
     }
 
+    // MARK: - Index external directory
+
+    /// Index all JSONL files under an arbitrary directory (e.g. a remote Mac's .claude/projects).
+    func indexDirectory(_ directory: URL) async throws {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: directory.path) else { return }
+
+        try await db.open()
+        try await db.createSchema()
+
+        let jsonlFiles = collectJSONLFiles(under: directory)
+        for file in jsonlFiles {
+            try await indexFile(at: file)
+        }
+    }
+
     // MARK: - Load from database
 
     func loadProjects() async throws {
@@ -87,12 +103,9 @@ class ConversationStore {
     /// Examples:
     /// - "-Users-dan-Code-ScreenshotTray" -> "ScreenshotTray"
     /// - "-Users-dan-Code-Kids-Expenses" -> "Kids Expenses"
-    /// - "-Users-dan-Code-ScreenshotTray--claude-worktrees-dreamy-chatelet-3b2971" -> "ScreenshotTray (worktree)"
+    /// - "-Users-dan-Code-ScreenshotTray--claude-worktrees-dreamy-chatelet-3b2971" -> "ScreenshotTray"
     nonisolated static func deriveProjectName(from folderName: String) -> String {
-        // Check for worktree pattern: contains "--claude-worktrees-"
-        let isWorktree = folderName.contains("--claude-worktrees-")
-
-        // Strip worktree suffix for name derivation
+        // Strip worktree suffix for name derivation — worktrees are merged with their parent
         let baseName: String
         if let worktreeRange = folderName.range(of: "--claude-worktrees-") {
             baseName = String(folderName[..<worktreeRange.lowerBound])
@@ -130,19 +143,11 @@ class ConversationStore {
         // Build the display name from meaningful components
         let meaningful = Array(components[min(meaningfulStart, components.count)...])
 
-        let displayName: String
         if meaningful.isEmpty {
-            // Fallback: use last component or the entire folder name
-            displayName = components.last ?? folderName
-        } else {
-            displayName = meaningful.joined(separator: " ")
+            return components.last ?? folderName
         }
 
-        if isWorktree {
-            return "\(displayName) (worktree)"
-        }
-
-        return displayName
+        return meaningful.joined(separator: " ")
     }
 
     // MARK: - Private helpers

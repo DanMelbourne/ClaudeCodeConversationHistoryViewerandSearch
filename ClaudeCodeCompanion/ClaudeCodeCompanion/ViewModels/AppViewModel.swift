@@ -58,11 +58,24 @@ final class AppViewModel {
         !searchText.isEmpty && !searchResults.isEmpty
     }
 
+    // MARK: - Scroll Target
+
+    var scrollToMessageId: String?
+
     // MARK: - Indexing
 
     var isIndexing: Bool = false
     var indexingProgress: Double = 0
     var indexingStatus: String = ""
+
+    // MARK: - External Sources
+
+    var externalSources: [ConversationSource] = []
+    var showSourcesManager: Bool = false
+
+    // MARK: - Debounce
+
+    @ObservationIgnored private var searchDebounceTask: Task<Void, Never>?
 
     // MARK: - CLAUDE.md Editor
 
@@ -81,11 +94,35 @@ final class AppViewModel {
 
     var showSystemMessages: Bool = false
 
+    // MARK: - Database
+
+    var store: ConversationStore?
+
     // MARK: - Initialization
 
     @MainActor
     func initialize() async {
+        externalSources = ConversationSource.loadAll()
         loadProjects()
+        let convStore = ConversationStore()
+        self.store = convStore
+        isIndexing = true
+        indexingStatus = "Building index..."
+        do {
+            try await convStore.performFullIndex()
+            // Index accessible external sources
+            for i in externalSources.indices where externalSources[i].isEnabled && externalSources[i].isAccessible {
+                indexingStatus = "Indexing \(externalSources[i].name)..."
+                try await convStore.indexDirectory(URL(fileURLWithPath: externalSources[i].path))
+                externalSources[i].lastIndexed = Date()
+            }
+            ConversationSource.saveAll(externalSources)
+        } catch {
+            indexingStatus = "Index error: \(error.localizedDescription)"
+        }
+        isIndexing = false
+        indexingStatus = ""
+        loadProjects() // reload to include external source projects
     }
 
     // MARK: - Project Loading
@@ -95,48 +132,113 @@ final class AppViewModel {
         let homeDir = FileManager.default.homeDirectoryForCurrentUser
         let projectsDir = homeDir.appendingPathComponent(".claude/projects")
 
-        guard FileManager.default.fileExists(atPath: projectsDir.path) else {
+        var allDirectories: [URL] = []
+
+        // Local projects directory
+        if FileManager.default.fileExists(atPath: projectsDir.path) {
+            allDirectories.append(projectsDir)
+        }
+
+        // External sources (silently skip inaccessible ones)
+        for source in externalSources where source.isEnabled && source.isAccessible {
+            allDirectories.append(URL(fileURLWithPath: source.path))
+        }
+
+        guard !allDirectories.isEmpty else {
             projects = []
             return
         }
 
         do {
-            let contents = try FileManager.default.contentsOfDirectory(
-                at: projectsDir,
-                includingPropertiesForKeys: [.isDirectoryKey, .contentModificationDateKey],
-                options: [.skipsHiddenFiles]
-            )
+            struct FolderInfo {
+                let url: URL
+                let sessionCount: Int
+                let latestDate: Date?
+            }
 
-            var loadedProjects: [Project] = []
-            for folder in contents {
-                var isDir: ObjCBool = false
-                guard FileManager.default.fileExists(atPath: folder.path, isDirectory: &isDir),
-                      isDir.boolValue else { continue }
+            var folderInfos: [FolderInfo] = []
 
-                let sessionFiles = (try? FileManager.default.contentsOfDirectory(
-                    at: folder,
-                    includingPropertiesForKeys: [.contentModificationDateKey],
+            for projectsURL in allDirectories {
+                guard let contents = try? FileManager.default.contentsOfDirectory(
+                    at: projectsURL,
+                    includingPropertiesForKeys: [.isDirectoryKey, .contentModificationDateKey],
                     options: [.skipsHiddenFiles]
-                ).filter { $0.pathExtension == "jsonl" }) ?? []
+                ) else { continue }
 
-                let latestDate = sessionFiles.compactMap { file -> Date? in
-                    try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
-                }.max()
+                for folder in contents {
+                    var isDir: ObjCBool = false
+                    guard FileManager.default.fileExists(atPath: folder.path, isDirectory: &isDir),
+                          isDir.boolValue else { continue }
 
-                let displayName = projectDisplayName(from: folder.lastPathComponent)
+                    let sessionFiles = (try? FileManager.default.contentsOfDirectory(
+                        at: folder,
+                        includingPropertiesForKeys: [.contentModificationDateKey],
+                        options: [.skipsHiddenFiles]
+                    ).filter { $0.pathExtension == "jsonl" }) ?? []
+
+                    let latestDate = sessionFiles.compactMap { file -> Date? in
+                        try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+                    }.max()
+
+                    folderInfos.append(FolderInfo(url: folder, sessionCount: sessionFiles.count, latestDate: latestDate))
+                }
+            }
+
+            // Group worktree folders with their base project
+            var baseProjects: [String: (base: FolderInfo?, worktrees: [FolderInfo])] = [:]
+
+            for info in folderInfos {
+                let folderName = info.url.lastPathComponent
+                if let worktreeRange = folderName.range(of: "--claude-worktrees-") {
+                    let baseName = String(folderName[..<worktreeRange.lowerBound])
+                    if baseProjects[baseName] != nil {
+                        baseProjects[baseName]!.worktrees.append(info)
+                    } else {
+                        baseProjects[baseName] = (base: nil, worktrees: [info])
+                    }
+                } else {
+                    if baseProjects[folderName] != nil {
+                        // Merge: if base already exists (from another source), add as additional path
+                        baseProjects[folderName]!.worktrees.append(info)
+                    } else {
+                        baseProjects[folderName] = (base: info, worktrees: [])
+                    }
+                }
+            }
+
+            // Build merged projects
+            var loadedProjects: [Project] = []
+            for (baseName, group) in baseProjects {
+                let primaryInfo: FolderInfo
+                let worktreeInfos: [FolderInfo]
+                if let base = group.base {
+                    primaryInfo = base
+                    worktreeInfos = group.worktrees
+                } else if let firstWorktree = group.worktrees.first {
+                    primaryInfo = firstWorktree
+                    worktreeInfos = Array(group.worktrees.dropFirst())
+                } else {
+                    continue
+                }
+
+                let totalSessionCount = primaryInfo.sessionCount + worktreeInfos.reduce(0) { $0 + $1.sessionCount }
+                let allDates = ([primaryInfo.latestDate] + worktreeInfos.map(\.latestDate)).compactMap { $0 }
+                let latestDate = allDates.max()
+                let additionalPaths = worktreeInfos.map(\.url)
+
+                let displayName = projectDisplayName(from: baseName)
 
                 loadedProjects.append(Project(
-                    id: folder.lastPathComponent,
+                    id: baseName,
                     displayName: displayName,
-                    path: folder,
-                    sessionCount: sessionFiles.count,
+                    path: primaryInfo.url,
+                    additionalPaths: additionalPaths,
+                    sessionCount: totalSessionCount,
                     lastActivityDate: latestDate
                 ))
             }
 
             projects = loadedProjects.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
-        } catch {
-            projects = []
         }
     }
 
@@ -144,14 +246,16 @@ final class AppViewModel {
 
     @MainActor
     func loadSessions(for project: Project) {
-        do {
-            let files = try FileManager.default.contentsOfDirectory(
-                at: project.path,
+        var loadedSessions: [ConversationSession] = []
+
+        // Load sessions from the base path and all worktree paths
+        for folderURL in project.allPaths {
+            guard let files = try? FileManager.default.contentsOfDirectory(
+                at: folderURL,
                 includingPropertiesForKeys: [.contentModificationDateKey],
                 options: [.skipsHiddenFiles]
-            ).filter { $0.pathExtension == "jsonl" }
+            ).filter({ $0.pathExtension == "jsonl" }) else { continue }
 
-            var loadedSessions: [ConversationSession] = []
             for file in files {
                 let modDate = try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
 
@@ -171,12 +275,10 @@ final class AppViewModel {
                     isSubagent: isSubagent
                 ))
             }
+        }
 
-            sessions = loadedSessions.sorted {
-                ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast)
-            }
-        } catch {
-            sessions = []
+        sessions = loadedSessions.sorted {
+            ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast)
         }
     }
 
@@ -224,69 +326,150 @@ final class AppViewModel {
     // MARK: - Search
 
     @MainActor
-    func performSearch() {
+    func performSearch() async {
         guard !searchText.isEmpty else {
             searchResults = []
             currentSearchResultIndex = 0
             return
         }
 
-        var results: [SearchResult] = []
-        var resultId = 0
+        do {
+            guard let store else { return }
 
-        let projectsToSearch: [Project]
-        switch searchScope {
-        case .allProjects:
-            projectsToSearch = projects
-        case .currentProject:
-            if let proj = selectedProject {
-                projectsToSearch = [proj]
-            } else {
-                projectsToSearch = projects
-            }
-        case .currentChat:
-            if let session = selectedSession, let project = selectedProject {
-                searchInSession(session, project: project, query: searchText, results: &results, resultId: &resultId)
+            switch searchScope {
+            case .allProjects:
+                let results = try await store.db.search(
+                    query: searchText,
+                    projectPath: nil,
+                    sessionId: nil,
+                    limit: 500
+                )
                 searchResults = results
-                currentSearchResultIndex = results.isEmpty ? 0 : 0
-                return
-            }
-            projectsToSearch = []
-        }
 
-        for project in projectsToSearch {
-            do {
-                let files = try FileManager.default.contentsOfDirectory(
-                    at: project.path,
-                    includingPropertiesForKeys: nil,
-                    options: [.skipsHiddenFiles]
-                ).filter { $0.pathExtension == "jsonl" }
-
-                for file in files {
-                    let session = ConversationSession(
-                        id: file.deletingPathExtension().lastPathComponent,
-                        projectId: project.id,
-                        filePath: file,
-                        firstUserMessage: nil,
-                        timestamp: nil,
-                        messageCount: 0,
-                        isSubagent: false
-                    )
-                    searchInSession(session, project: project, query: searchText, results: &results, resultId: &resultId)
+            case .currentProject:
+                guard let project = selectedProject else {
+                    searchResults = []
+                    currentSearchResultIndex = 0
+                    return
                 }
-            } catch {
-                continue
-            }
-        }
+                // Search across all paths (base + worktrees) for this project
+                var combined: [SearchResult] = []
+                for folderURL in project.allPaths {
+                    let results = try await store.db.search(
+                        query: searchText,
+                        projectPath: folderURL.path,
+                        sessionId: nil,
+                        limit: 500
+                    )
+                    combined.append(contentsOf: results)
+                }
+                searchResults = combined
 
-        searchResults = results
-        currentSearchResultIndex = results.isEmpty ? 0 : 0
+            case .currentChat:
+                let results = try await store.db.search(
+                    query: searchText,
+                    projectPath: nil,
+                    sessionId: selectedSession?.id,
+                    limit: 500
+                )
+                searchResults = results
+            }
+
+            currentSearchResultIndex = 0
+        } catch {
+            searchResults = []
+            currentSearchResultIndex = 0
+        }
     }
 
     @MainActor
     func navigateSearchResult(direction: Int) {
         guard !searchResults.isEmpty else { return }
         currentSearchResultIndex = (currentSearchResultIndex + direction + searchResults.count) % searchResults.count
+    }
+
+    @MainActor
+    func debouncedSearch() {
+        searchDebounceTask?.cancel()
+
+        guard !searchText.isEmpty else {
+            searchResults = []
+            currentSearchResultIndex = 0
+            detailDestination = .conversation
+            return
+        }
+
+        searchDebounceTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            await performSearch()
+            if !searchResults.isEmpty {
+                detailDestination = .searchResults
+            }
+        }
+    }
+
+    @MainActor
+    func immediateSearch() async {
+        searchDebounceTask?.cancel()
+        await performSearch()
+        if !searchResults.isEmpty {
+            detailDestination = .searchResults
+        }
+    }
+
+    @MainActor
+    func navigateToSearchResult(_ result: SearchResult) {
+        // Match project by any of its paths (base or worktree)
+        guard let project = projects.first(where: { $0.ownsPath(result.projectPath) }) else { return }
+
+        selectedProject = project
+        loadSessions(for: project)
+
+        var session = sessions.first(where: { $0.id == result.sessionId })
+
+        if session == nil, let fileURL = findSessionFile(sessionId: result.sessionId, in: project) {
+            let modDate = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+            session = ConversationSession(
+                id: result.sessionId,
+                projectId: project.id,
+                filePath: fileURL,
+                firstUserMessage: nil,
+                timestamp: modDate,
+                messageCount: 0,
+                isSubagent: true
+            )
+        }
+
+        guard let session else { return }
+        selectedSession = session
+        loadMessages(for: session)
+        detailDestination = .conversation
+        let targetUuid = result.messageUuid
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(300))
+            scrollToMessageId = targetUuid
+        }
+    }
+
+    private func findSessionFile(sessionId: String, in project: Project) -> URL? {
+        let fm = FileManager.default
+        // Search across all project paths (base + worktrees)
+        for folderURL in project.allPaths {
+            guard let enumerator = fm.enumerator(
+                at: folderURL,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            ) else { continue }
+
+            for case let url as URL in enumerator {
+                if url.pathExtension == "jsonl",
+                   url.deletingPathExtension().lastPathComponent == sessionId {
+                    return url
+                }
+            }
+        }
+        return nil
     }
 
     // MARK: - CLAUDE.md
@@ -336,6 +519,68 @@ final class AppViewModel {
 
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    // MARK: - External Source Management
+
+    @MainActor
+    func addSource(name: String, path: String) {
+        let source = ConversationSource(name: name, path: path)
+        externalSources.append(source)
+        ConversationSource.saveAll(externalSources)
+        loadProjects()
+        // Index in background
+        Task {
+            await reindexSource(source)
+        }
+    }
+
+    @MainActor
+    func removeSource(_ id: UUID) {
+        externalSources.removeAll { $0.id == id }
+        ConversationSource.saveAll(externalSources)
+        loadProjects()
+    }
+
+    @MainActor
+    func toggleSource(_ id: UUID) {
+        guard let idx = externalSources.firstIndex(where: { $0.id == id }) else { return }
+        externalSources[idx].isEnabled.toggle()
+        ConversationSource.saveAll(externalSources)
+        loadProjects()
+    }
+
+    @MainActor
+    func renameSource(_ id: UUID, to name: String) {
+        guard let idx = externalSources.firstIndex(where: { $0.id == id }) else { return }
+        externalSources[idx].name = name
+        ConversationSource.saveAll(externalSources)
+    }
+
+    @MainActor
+    func reindexSource(_ source: ConversationSource) async {
+        guard source.isAccessible, let store else { return }
+        isIndexing = true
+        indexingStatus = "Indexing \(source.name)..."
+        do {
+            try await store.indexDirectory(URL(fileURLWithPath: source.path))
+            if let idx = externalSources.firstIndex(where: { $0.id == source.id }) {
+                externalSources[idx].lastIndexed = Date()
+                ConversationSource.saveAll(externalSources)
+            }
+        } catch {
+            indexingStatus = "Error indexing \(source.name)"
+        }
+        isIndexing = false
+        indexingStatus = ""
+        loadProjects()
+    }
+
+    @MainActor
+    func reindexAllSources() async {
+        for source in externalSources where source.isEnabled && source.isAccessible {
+            await reindexSource(source)
+        }
     }
 
     // MARK: - Private Helpers
@@ -484,10 +729,12 @@ final class AppViewModel {
 
             let snippet = createSnippet(from: fullText, query: query, contextLines: Int(contextLines))
 
+            let uuid = (json["uuid"] as? String) ?? UUID().uuidString
             results.append(SearchResult(
                 id: resultId,
                 sessionId: session.id,
                 projectPath: project.displayName,
+                messageUuid: uuid,
                 messageType: type.rawValue,
                 timestamp: timestamp,
                 snippet: snippet,

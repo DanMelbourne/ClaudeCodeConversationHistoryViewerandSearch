@@ -26,11 +26,11 @@ struct ContentView: View {
                         .frame(minWidth: 180, maxWidth: 260)
                         .onSubmit {
                             Task { @MainActor in
-                                appViewModel.performSearch()
-                                if appViewModel.isSearchActive {
-                                    appViewModel.detailDestination = .searchResults
-                                }
+                                await appViewModel.immediateSearch()
                             }
+                        }
+                        .onChange(of: appViewModel.searchText) { _, _ in
+                            appViewModel.debouncedSearch()
                         }
                     if !appViewModel.searchText.isEmpty {
                         Button {

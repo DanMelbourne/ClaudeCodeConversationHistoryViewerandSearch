@@ -19,7 +19,6 @@ struct SearchResultsView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    // Results header
                     HStack {
                         Text("\(appViewModel.searchResults.count) result\(appViewModel.searchResults.count == 1 ? "" : "s") for \"\(appViewModel.searchText)\"")
                             .font(.headline)
@@ -30,16 +29,17 @@ struct SearchResultsView: View {
                     .padding(.top, 16)
                     .padding(.bottom, 8)
 
-                    // Group results by project
                     let grouped = groupedResults
-                    ForEach(Array(grouped.keys.sorted()), id: \.self) { projectName in
-                        if let projectResults = grouped[projectName] {
+                    ForEach(Array(grouped.keys.sorted()), id: \.self) { projectDisplayName in
+                        if let projectResults = grouped[projectDisplayName] {
                             ProjectResultSection(
-                                projectName: projectName,
+                                projectName: projectDisplayName,
                                 results: projectResults,
                                 currentIndex: appViewModel.currentSearchResultIndex,
+                                searchText: appViewModel.searchText,
+                                contextLines: Int(appViewModel.contextLines),
                                 onNavigate: { result in
-                                    navigateToResult(result)
+                                    appViewModel.navigateToSearchResult(result)
                                 }
                             )
                         }
@@ -56,28 +56,10 @@ struct SearchResultsView: View {
         }
     }
 
-    // MARK: - Grouped Results
+    // MARK: - Grouped Results (by display name)
 
     private var groupedResults: [String: [SearchResult]] {
-        Dictionary(grouping: appViewModel.searchResults) { $0.projectPath }
-    }
-
-    // MARK: - Navigation
-
-    private func navigateToResult(_ result: SearchResult) {
-        // Find the project and session, then navigate there
-        if let project = appViewModel.projects.first(where: { $0.displayName == result.projectPath }) {
-            appViewModel.selectedProject = project
-            appViewModel.loadSessions(for: project)
-
-            if let session = appViewModel.sessions.first(where: { $0.id == result.sessionId }) {
-                appViewModel.selectedSession = session
-                Task { @MainActor in
-                    appViewModel.loadMessages(for: session)
-                    appViewModel.detailDestination = .conversation
-                }
-            }
-        }
+        Dictionary(grouping: appViewModel.searchResults) { $0.projectDisplayName }
     }
 
     // MARK: - Empty State
@@ -106,9 +88,10 @@ private struct ProjectResultSection: View {
     let projectName: String
     let results: [SearchResult]
     let currentIndex: Int
+    let searchText: String
+    let contextLines: Int
     let onNavigate: (SearchResult) -> Void
 
-    // Group by session within the project
     private var sessionGroups: [(String, [SearchResult])] {
         let grouped = Dictionary(grouping: results) { $0.sessionId }
         return grouped.sorted { a, b in
@@ -120,7 +103,6 @@ private struct ProjectResultSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Project header
             HStack(spacing: 6) {
                 Image(systemName: "folder.fill")
                     .font(.caption)
@@ -140,7 +122,6 @@ private struct ProjectResultSection: View {
 
             ForEach(sessionGroups, id: \.0) { sessionId, sessionResults in
                 VStack(alignment: .leading, spacing: 0) {
-                    // Session date header
                     if let firstResult = sessionResults.first {
                         Text(sessionDateLabel(firstResult.timestamp))
                             .font(.caption)
@@ -153,12 +134,12 @@ private struct ProjectResultSection: View {
                     ForEach(sessionResults) { result in
                         SearchResultRow(
                             result: result,
-                            isCurrentResult: result.id == currentIndex
+                            isCurrentResult: result.id == currentIndex,
+                            searchText: searchText,
+                            contextLines: contextLines,
+                            onNavigate: { onNavigate(result) }
                         )
                         .id(result.id)
-                        .onTapGesture {
-                            onNavigate(result)
-                        }
                     }
                 }
             }
@@ -177,10 +158,12 @@ private struct ProjectResultSection: View {
 private struct SearchResultRow: View {
     let result: SearchResult
     let isCurrentResult: Bool
+    let searchText: String
+    let contextLines: Int
+    let onNavigate: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // Type badge and copy button
             HStack {
                 Text(result.messageType.uppercased())
                     .font(.system(.caption2, design: .monospaced))
@@ -191,6 +174,20 @@ private struct SearchResultRow: View {
                     .foregroundStyle(badgeColor)
 
                 Spacer()
+
+                Button {
+                    onNavigate()
+                } label: {
+                    HStack(spacing: 3) {
+                        Text("Open")
+                            .font(.caption2)
+                        Image(systemName: "arrow.right.circle.fill")
+                            .font(.caption)
+                    }
+                    .foregroundStyle(DesignConstants.accentColor)
+                }
+                .buttonStyle(.borderless)
+                .help("Go to this message in conversation")
 
                 Button {
                     NSPasteboard.general.clearContents()
@@ -204,7 +201,6 @@ private struct SearchResultRow: View {
                 .help("Copy match text")
             }
 
-            // Snippet with highlighted text
             highlightedSnippet
                 .font(.system(.caption, design: .monospaced))
                 .textSelection(.enabled)
@@ -229,10 +225,14 @@ private struct SearchResultRow: View {
         .contentShape(Rectangle())
     }
 
-    // MARK: - Highlighted Snippet
+    // MARK: - Dynamic Snippet with Context
+
+    private var snippetText: String {
+        result.dynamicSnippet(query: searchText, contextLines: contextLines)
+    }
 
     private var highlightedSnippet: Text {
-        let snippet = result.snippet
+        let snippet = snippetText
         var resultText = Text("")
 
         let parts = snippet.components(separatedBy: "<mark>")

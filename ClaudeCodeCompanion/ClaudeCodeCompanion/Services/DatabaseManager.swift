@@ -258,6 +258,7 @@ actor DatabaseManager {
                 m.id,
                 m.session_id,
                 m.project_path,
+                m.uuid,
                 m.type,
                 m.timestamp,
                 snippet(messages_fts, 0, '<mark>', '</mark>', '...', 40) as snippet,
@@ -311,22 +312,23 @@ actor DatabaseManager {
             let id = Int(sqlite3_column_int64(stmt, 0))
             let sessionIdVal = columnText(stmt, 1)
             let projectPathVal = columnText(stmt, 2)
-            let messageType = columnText(stmt, 3)
-            let timestampStr = columnText(stmt, 4)
-            let snippet = columnText(stmt, 5)
-            let fullText = columnText(stmt, 6)
+            let messageUuid = columnText(stmt, 3)
+            let messageType = columnText(stmt, 4)
+            let timestampStr = columnText(stmt, 5)
+            let snippet = columnText(stmt, 6)
+            let fullText = columnText(stmt, 7)
 
             let timestamp = isoFormatter.date(from: timestampStr)
                 ?? isoFallback.date(from: timestampStr)
                 ?? Date.distantPast
 
-            // Fetch surrounding context
             let (before, after) = fetchContext(messageId: id, sessionId: sessionIdVal)
 
             results.append(SearchResult(
                 id: id,
                 sessionId: sessionIdVal,
                 projectPath: projectPathVal,
+                messageUuid: messageUuid,
                 messageType: messageType,
                 timestamp: timestamp,
                 snippet: snippet,
@@ -510,6 +512,7 @@ actor DatabaseManager {
                 id: projectPath,
                 displayName: displayName,
                 path: URL(fileURLWithPath: projectPath),
+                additionalPaths: [],
                 sessionCount: sessionCount,
                 lastActivityDate: timestamp
             ))

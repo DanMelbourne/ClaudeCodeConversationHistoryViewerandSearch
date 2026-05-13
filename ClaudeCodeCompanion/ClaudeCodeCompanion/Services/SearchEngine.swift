@@ -191,6 +191,7 @@ private enum GrepRunner {
                 id: index,
                 sessionId: sessionId,
                 projectPath: projectPath,
+                messageUuid: "",
                 messageType: messageType,
                 timestamp: timestamp,
                 snippet: snippet,
