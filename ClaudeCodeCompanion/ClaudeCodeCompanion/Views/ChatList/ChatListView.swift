@@ -9,6 +9,9 @@ struct ChatListView: View {
         Group {
             if appViewModel.selectedProject == nil {
                 emptyState
+            } else if appViewModel.isLoadingSessions {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if appViewModel.sessions.isEmpty {
                 noSessionsState
             } else {

@@ -7,6 +7,9 @@ struct ConversationView: View {
         Group {
             if appViewModel.selectedSession == nil {
                 emptyState
+            } else if appViewModel.isLoadingMessages {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if appViewModel.messages.isEmpty {
                 emptyConversation
             } else {

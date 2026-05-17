@@ -45,6 +45,8 @@ final class AppViewModel {
     var projects: [Project] = []
     var sessions: [ConversationSession] = []
     var messages: [ParsedMessage] = []
+    var isLoadingSessions: Bool = false
+    var isLoadingMessages: Bool = false
 
     // MARK: - Search
 
@@ -149,108 +151,137 @@ final class AppViewModel {
             return
         }
 
-        do {
-            struct FolderInfo {
-                let url: URL
-                let sessionCount: Int
-                let latestDate: Date?
+        Task.detached(priority: .userInitiated) { [allDirectories] in
+            let loadedProjects = Self.enumerateProjects(in: allDirectories)
+            await MainActor.run { [weak self] in
+                self?.projects = loadedProjects
             }
-
-            var folderInfos: [FolderInfo] = []
-
-            for projectsURL in allDirectories {
-                guard let contents = try? FileManager.default.contentsOfDirectory(
-                    at: projectsURL,
-                    includingPropertiesForKeys: [.isDirectoryKey, .contentModificationDateKey],
-                    options: [.skipsHiddenFiles]
-                ) else { continue }
-
-                for folder in contents {
-                    var isDir: ObjCBool = false
-                    guard FileManager.default.fileExists(atPath: folder.path, isDirectory: &isDir),
-                          isDir.boolValue else { continue }
-
-                    let sessionFiles = (try? FileManager.default.contentsOfDirectory(
-                        at: folder,
-                        includingPropertiesForKeys: [.contentModificationDateKey],
-                        options: [.skipsHiddenFiles]
-                    ).filter { $0.pathExtension == "jsonl" }) ?? []
-
-                    let latestDate = sessionFiles.compactMap { file -> Date? in
-                        try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
-                    }.max()
-
-                    folderInfos.append(FolderInfo(url: folder, sessionCount: sessionFiles.count, latestDate: latestDate))
-                }
-            }
-
-            // Group worktree folders with their base project
-            var baseProjects: [String: (base: FolderInfo?, worktrees: [FolderInfo])] = [:]
-
-            for info in folderInfos {
-                let folderName = info.url.lastPathComponent
-                if let worktreeRange = folderName.range(of: "--claude-worktrees-") {
-                    let baseName = String(folderName[..<worktreeRange.lowerBound])
-                    if baseProjects[baseName] != nil {
-                        baseProjects[baseName]!.worktrees.append(info)
-                    } else {
-                        baseProjects[baseName] = (base: nil, worktrees: [info])
-                    }
-                } else {
-                    if baseProjects[folderName] != nil {
-                        // Merge: if base already exists (from another source), add as additional path
-                        baseProjects[folderName]!.worktrees.append(info)
-                    } else {
-                        baseProjects[folderName] = (base: info, worktrees: [])
-                    }
-                }
-            }
-
-            // Build merged projects
-            var loadedProjects: [Project] = []
-            for (baseName, group) in baseProjects {
-                let primaryInfo: FolderInfo
-                let worktreeInfos: [FolderInfo]
-                if let base = group.base {
-                    primaryInfo = base
-                    worktreeInfos = group.worktrees
-                } else if let firstWorktree = group.worktrees.first {
-                    primaryInfo = firstWorktree
-                    worktreeInfos = Array(group.worktrees.dropFirst())
-                } else {
-                    continue
-                }
-
-                let totalSessionCount = primaryInfo.sessionCount + worktreeInfos.reduce(0) { $0 + $1.sessionCount }
-                let allDates = ([primaryInfo.latestDate] + worktreeInfos.map(\.latestDate)).compactMap { $0 }
-                let latestDate = allDates.max()
-                let additionalPaths = worktreeInfos.map(\.url)
-
-                let displayName = projectDisplayName(from: baseName)
-
-                loadedProjects.append(Project(
-                    id: baseName,
-                    displayName: displayName,
-                    path: primaryInfo.url,
-                    additionalPaths: additionalPaths,
-                    sessionCount: totalSessionCount,
-                    lastActivityDate: latestDate
-                ))
-            }
-
-            projects = loadedProjects.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
         }
+    }
+
+    /// Enumerate project folders on a background thread. Pure function, no main-thread dependency.
+    private nonisolated static func enumerateProjects(in directories: [URL]) -> [Project] {
+        struct FolderInfo {
+            let url: URL
+            let sessionCount: Int
+            let latestDate: Date?
+        }
+
+        let fm = FileManager.default
+        var folderInfos: [FolderInfo] = []
+
+        for projectsURL in directories {
+            guard let contents = try? fm.contentsOfDirectory(
+                at: projectsURL,
+                includingPropertiesForKeys: [.isDirectoryKey, .contentModificationDateKey],
+                options: [.skipsHiddenFiles]
+            ) else { continue }
+
+            for folder in contents {
+                var isDir: ObjCBool = false
+                guard fm.fileExists(atPath: folder.path, isDirectory: &isDir),
+                      isDir.boolValue else { continue }
+
+                let sessionFiles = (try? fm.contentsOfDirectory(
+                    at: folder,
+                    includingPropertiesForKeys: [.contentModificationDateKey],
+                    options: [.skipsHiddenFiles]
+                ).filter { $0.pathExtension == "jsonl" }) ?? []
+
+                let latestDate = sessionFiles.compactMap { file -> Date? in
+                    try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+                }.max()
+
+                folderInfos.append(FolderInfo(url: folder, sessionCount: sessionFiles.count, latestDate: latestDate))
+            }
+        }
+
+        // Group worktree folders with their base project
+        var baseProjects: [String: (base: FolderInfo?, worktrees: [FolderInfo])] = [:]
+
+        for info in folderInfos {
+            let folderName = info.url.lastPathComponent
+            if let worktreeRange = folderName.range(of: "--claude-worktrees-") {
+                let baseName = String(folderName[..<worktreeRange.lowerBound])
+                if baseProjects[baseName] != nil {
+                    baseProjects[baseName]!.worktrees.append(info)
+                } else {
+                    baseProjects[baseName] = (base: nil, worktrees: [info])
+                }
+            } else {
+                if baseProjects[folderName] != nil {
+                    baseProjects[folderName]!.worktrees.append(info)
+                } else {
+                    baseProjects[folderName] = (base: info, worktrees: [])
+                }
+            }
+        }
+
+        // Build merged projects
+        var loadedProjects: [Project] = []
+        for (baseName, group) in baseProjects {
+            let primaryInfo: FolderInfo
+            let worktreeInfos: [FolderInfo]
+            if let base = group.base {
+                primaryInfo = base
+                worktreeInfos = group.worktrees
+            } else if let firstWorktree = group.worktrees.first {
+                primaryInfo = firstWorktree
+                worktreeInfos = Array(group.worktrees.dropFirst())
+            } else {
+                continue
+            }
+
+            let totalSessionCount = primaryInfo.sessionCount + worktreeInfos.reduce(0) { $0 + $1.sessionCount }
+            let allDates = ([primaryInfo.latestDate] + worktreeInfos.map(\.latestDate)).compactMap { $0 }
+            let latestDate = allDates.max()
+            let additionalPaths = worktreeInfos.map(\.url)
+
+            let displayName = ConversationStore.deriveProjectName(from: baseName)
+
+            loadedProjects.append(Project(
+                id: baseName,
+                displayName: displayName,
+                path: primaryInfo.url,
+                additionalPaths: additionalPaths,
+                sessionCount: totalSessionCount,
+                lastActivityDate: latestDate
+            ))
+        }
+
+        return loadedProjects.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
     }
 
     // MARK: - Session Loading
 
+    @ObservationIgnored private var loadSessionsTask: Task<Void, Never>?
+
     @MainActor
     func loadSessions(for project: Project) {
+        loadSessionsTask?.cancel()
+        isLoadingSessions = true
+
+        let projectId = project.id
+        let allPaths = project.allPaths
+
+        loadSessionsTask = Task.detached(priority: .userInitiated) { [weak self] in
+            let loadedSessions = Self.enumerateSessions(projectId: projectId, paths: allPaths)
+            guard !Task.isCancelled else { return }
+            await MainActor.run { [weak self] in
+                guard let self, !Task.isCancelled else { return }
+                self.sessions = loadedSessions
+                self.isLoadingSessions = false
+            }
+        }
+    }
+
+    /// Enumerate sessions on a background thread. No main-thread file I/O.
+    private nonisolated static func enumerateSessions(projectId: String, paths: [URL]) -> [ConversationSession] {
+        let fm = FileManager.default
         var loadedSessions: [ConversationSession] = []
 
-        // Load sessions from the base path and all worktree paths
-        for folderURL in project.allPaths {
-            guard let files = try? FileManager.default.contentsOfDirectory(
+        for folderURL in paths {
+            guard let files = try? fm.contentsOfDirectory(
                 at: folderURL,
                 includingPropertiesForKeys: [.contentModificationDateKey],
                 options: [.skipsHiddenFiles]
@@ -259,15 +290,15 @@ final class AppViewModel {
             for file in files {
                 let modDate = try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
 
-                let firstLine = readFirstUserMessage(from: file)
-                let lineCount = countLines(in: file)
+                let firstLine = readFirstUserMessageBackground(from: file)
+                let lineCount = countLinesEfficient(in: file)
 
                 let isSubagent = file.lastPathComponent.contains("subagent") ||
                     file.lastPathComponent.contains("task_")
 
                 loadedSessions.append(ConversationSession(
                     id: file.deletingPathExtension().lastPathComponent,
-                    projectId: project.id,
+                    projectId: projectId,
                     filePath: file,
                     firstUserMessage: firstLine,
                     timestamp: modDate,
@@ -277,50 +308,96 @@ final class AppViewModel {
             }
         }
 
-        sessions = loadedSessions.sorted {
+        return loadedSessions.sorted {
             ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast)
         }
     }
 
     // MARK: - Message Loading
 
+    @ObservationIgnored private var loadMessagesTask: Task<Void, Never>?
+
     @MainActor
     func loadMessages(for session: ConversationSession) {
+        loadMessagesTask?.cancel()
+
         guard FileManager.default.fileExists(atPath: session.filePath.path) else {
             messages = []
             return
         }
 
-        do {
-            let data = try String(contentsOf: session.filePath, encoding: .utf8)
-            let lines = data.components(separatedBy: .newlines).filter { !$0.isEmpty }
+        isLoadingMessages = true
+        let filePath = session.filePath
 
-            var parsed: [ParsedMessage] = []
-            for (index, line) in lines.enumerated() {
-                guard let jsonData = line.data(using: .utf8),
-                      let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
-                    continue
-                }
-
-                let type = parseMessageType(from: json)
-                let timestamp = parseTimestamp(from: json) ?? Date(timeIntervalSince1970: TimeInterval(index))
-                let blocks = parseContentBlocks(from: json)
-
-                guard !blocks.isEmpty else { continue }
-
-                parsed.append(ParsedMessage(
-                    id: json["uuid"] as? String ?? UUID().uuidString,
-                    type: type,
-                    timestamp: timestamp,
-                    blocks: blocks,
-                    rawJSON: line
-                ))
+        loadMessagesTask = Task.detached(priority: .userInitiated) { [weak self] in
+            let parsed = Self.parseMessagesStreaming(from: filePath)
+            guard !Task.isCancelled else { return }
+            await MainActor.run { [weak self] in
+                guard let self, !Task.isCancelled else { return }
+                self.messages = parsed
+                self.isLoadingMessages = false
             }
-
-            messages = parsed
-        } catch {
-            messages = []
         }
+    }
+
+    /// Stream-parse a JSONL file into ParsedMessages without loading the entire file into memory.
+    private nonisolated static func parseMessagesStreaming(from filePath: URL) -> [ParsedMessage] {
+        guard let handle = try? FileHandle(forReadingFrom: filePath) else { return [] }
+        defer { handle.closeFile() }
+
+        var parsed: [ParsedMessage] = []
+        let bufferSize = 256 * 1024 // 256KB chunks
+        var leftover = ""
+        var lineIndex = 0
+
+        while true {
+            guard let chunk = try? handle.read(upToCount: bufferSize), !chunk.isEmpty else {
+                break
+            }
+            guard let chunkString = String(data: chunk, encoding: .utf8) else { continue }
+            leftover += chunkString
+            var lines = leftover.components(separatedBy: "\n")
+            leftover = lines.removeLast() // incomplete line
+
+            for line in lines {
+                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { continue }
+                if let msg = parseLineIntoParsedMessage(trimmed, lineIndex: lineIndex) {
+                    parsed.append(msg)
+                }
+                lineIndex += 1
+            }
+        }
+
+        // Handle final leftover
+        let trimmed = leftover.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty, let msg = parseLineIntoParsedMessage(trimmed, lineIndex: lineIndex) {
+            parsed.append(msg)
+        }
+
+        return parsed
+    }
+
+    /// Parse a single JSONL line into a ParsedMessage. Thread-safe static method.
+    private nonisolated static func parseLineIntoParsedMessage(_ line: String, lineIndex: Int) -> ParsedMessage? {
+        guard let jsonData = line.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
+            return nil
+        }
+
+        let type = parseMessageTypeStatic(from: json)
+        let timestamp = parseTimestampStatic(from: json) ?? Date(timeIntervalSince1970: TimeInterval(lineIndex))
+        let blocks = parseContentBlocksStatic(from: json)
+
+        guard !blocks.isEmpty else { return nil }
+
+        return ParsedMessage(
+            id: json["uuid"] as? String ?? UUID().uuidString,
+            type: type,
+            timestamp: timestamp,
+            blocks: blocks,
+            rawJSON: line
+        )
     }
 
     // MARK: - Search
@@ -424,53 +501,69 @@ final class AppViewModel {
         guard let project = projects.first(where: { $0.ownsPath(result.projectPath) }) else { return }
 
         selectedProject = project
-        loadSessions(for: project)
-
-        var session = sessions.first(where: { $0.id == result.sessionId })
-
-        if session == nil, let fileURL = findSessionFile(sessionId: result.sessionId, in: project) {
-            let modDate = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
-            session = ConversationSession(
-                id: result.sessionId,
-                projectId: project.id,
-                filePath: fileURL,
-                firstUserMessage: nil,
-                timestamp: modDate,
-                messageCount: 0,
-                isSubagent: true
-            )
-        }
-
-        guard let session else { return }
-        selectedSession = session
-        loadMessages(for: session)
         detailDestination = .conversation
+
+        let projectId = project.id
+        let allPaths = project.allPaths
+        let sessionId = result.sessionId
         let targetUuid = result.messageUuid
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(300))
-            scrollToMessageId = targetUuid
-        }
-    }
 
-    private func findSessionFile(sessionId: String, in project: Project) -> URL? {
-        let fm = FileManager.default
-        // Search across all project paths (base + worktrees)
-        for folderURL in project.allPaths {
-            guard let enumerator = fm.enumerator(
-                at: folderURL,
-                includingPropertiesForKeys: nil,
-                options: [.skipsHiddenFiles]
-            ) else { continue }
+        // Load sessions and messages in background, then navigate
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let loadedSessions = Self.enumerateSessions(projectId: projectId, paths: allPaths)
 
-            for case let url as URL in enumerator {
-                if url.pathExtension == "jsonl",
-                   url.deletingPathExtension().lastPathComponent == sessionId {
-                    return url
+            var session = loadedSessions.first(where: { $0.id == sessionId })
+
+            if session == nil {
+                // Search for subagent file
+                let fm = FileManager.default
+                for folderURL in allPaths {
+                    guard let enumerator = fm.enumerator(
+                        at: folderURL,
+                        includingPropertiesForKeys: nil,
+                        options: [.skipsHiddenFiles]
+                    ) else { continue }
+
+                    for case let url as URL in enumerator {
+                        if url.pathExtension == "jsonl",
+                           url.deletingPathExtension().lastPathComponent == sessionId {
+                            let modDate = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+                            session = ConversationSession(
+                                id: sessionId,
+                                projectId: projectId,
+                                filePath: url,
+                                firstUserMessage: nil,
+                                timestamp: modDate,
+                                messageCount: 0,
+                                isSubagent: true
+                            )
+                            break
+                        }
+                    }
+                    if session != nil { break }
                 }
             }
+
+            guard let session else { return }
+            let parsed = Self.parseMessagesStreaming(from: session.filePath)
+
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                self.sessions = loadedSessions
+                self.selectedSession = session
+                self.messages = parsed
+                self.isLoadingSessions = false
+                self.isLoadingMessages = false
+            }
+
+            // Small delay for scroll view to render
+            try? await Task.sleep(for: .milliseconds(300))
+            await MainActor.run { [weak self] in
+                self?.scrollToMessageId = targetUuid
+            }
         }
-        return nil
     }
+
 
     // MARK: - CLAUDE.md
 
@@ -589,11 +682,12 @@ final class AppViewModel {
         return ConversationStore.deriveProjectName(from: folderName)
     }
 
-    private func readFirstUserMessage(from file: URL) -> String? {
+    /// Read first user message — only reads first 64KB of file. Background-safe.
+    private nonisolated static func readFirstUserMessageBackground(from file: URL) -> String? {
         guard let handle = try? FileHandle(forReadingFrom: file) else { return nil }
         defer { handle.closeFile() }
 
-        let chunk = handle.readData(ofLength: 65536)
+        guard let chunk = try? handle.read(upToCount: 65536) else { return nil }
         guard let text = String(data: chunk, encoding: .utf8) else { return nil }
 
         let lines = text.components(separatedBy: .newlines)
@@ -619,12 +713,27 @@ final class AppViewModel {
         return nil
     }
 
-    private func countLines(in file: URL) -> Int {
-        guard let data = try? String(contentsOf: file, encoding: .utf8) else { return 0 }
-        return data.components(separatedBy: .newlines).filter { !$0.isEmpty }.count
+    /// Count newlines efficiently using raw byte scanning. Never converts entire file to String.
+    private nonisolated static func countLinesEfficient(in file: URL) -> Int {
+        guard let handle = try? FileHandle(forReadingFrom: file) else { return 0 }
+        defer { handle.closeFile() }
+
+        var count = 0
+        let newlineByte = UInt8(ascii: "\n")
+        let bufferSize = 65536
+
+        while true {
+            guard let data = try? handle.read(upToCount: bufferSize), !data.isEmpty else { break }
+            for byte in data where byte == newlineByte {
+                count += 1
+            }
+        }
+        return count
     }
 
-    private func parseMessageType(from json: [String: Any]) -> ConversationMessage.MessageType {
+    // MARK: - Static Parsing Helpers (thread-safe, used from background tasks)
+
+    private nonisolated static func parseMessageTypeStatic(from json: [String: Any]) -> ConversationMessage.MessageType {
         if let type = json["type"] as? String {
             switch type {
             case "human", "user": return .user
@@ -644,13 +753,22 @@ final class AppViewModel {
         return .system
     }
 
-    private func parseTimestamp(from json: [String: Any]) -> Date? {
+    private nonisolated static let isoFormatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
+    private nonisolated static let isoFallbackFormatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
+
+    private nonisolated static func parseTimestampStatic(from json: [String: Any]) -> Date? {
         if let ts = json["timestamp"] as? String {
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            if let date = formatter.date(from: ts) { return date }
-            formatter.formatOptions = [.withInternetDateTime]
-            return formatter.date(from: ts)
+            if let date = isoFormatter.date(from: ts) { return date }
+            return isoFallbackFormatter.date(from: ts)
         }
         if let ts = json["timestamp"] as? Double {
             return Date(timeIntervalSince1970: ts / 1000)
@@ -658,7 +776,7 @@ final class AppViewModel {
         return nil
     }
 
-    private func parseContentBlocks(from json: [String: Any]) -> [ContentBlock] {
+    private nonisolated static func parseContentBlocksStatic(from json: [String: Any]) -> [ContentBlock] {
         var blocks: [ContentBlock] = []
 
         // Try message.content as array
@@ -710,43 +828,81 @@ final class AppViewModel {
     }
 
     private func searchInSession(_ session: ConversationSession, project: Project, query: String, results: inout [SearchResult], resultId: inout Int) {
-        guard let data = try? String(contentsOf: session.filePath, encoding: .utf8) else { return }
+        guard let handle = try? FileHandle(forReadingFrom: session.filePath) else { return }
+        defer { handle.closeFile() }
 
-        let lines = data.components(separatedBy: .newlines).filter { !$0.isEmpty }
         let queryLower = query.lowercased()
+        let bufferSize = 256 * 1024
+        var leftover = ""
 
-        for line in lines {
-            guard let jsonData = line.data(using: .utf8),
-                  let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
-                continue
+        while true {
+            guard let chunk = try? handle.read(upToCount: bufferSize), !chunk.isEmpty else { break }
+            guard let chunkString = String(data: chunk, encoding: .utf8) else { continue }
+            leftover += chunkString
+            var lines = leftover.components(separatedBy: "\n")
+            leftover = lines.removeLast()
+
+            for line in lines {
+                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { continue }
+                guard let jsonData = trimmed.data(using: .utf8),
+                      let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else { continue }
+
+                let type = Self.parseMessageTypeStatic(from: json)
+                let timestamp = Self.parseTimestampStatic(from: json) ?? Date()
+                let fullText = Self.extractFullTextStatic(from: json)
+
+                guard fullText.lowercased().contains(queryLower) else { continue }
+
+                let snippet = Self.createSnippetStatic(from: fullText, query: query, contextLines: Int(contextLines))
+                let uuid = (json["uuid"] as? String) ?? UUID().uuidString
+
+                results.append(SearchResult(
+                    id: resultId,
+                    sessionId: session.id,
+                    projectPath: project.displayName,
+                    messageUuid: uuid,
+                    messageType: type.rawValue,
+                    timestamp: timestamp,
+                    snippet: snippet,
+                    fullText: fullText,
+                    contextBefore: "",
+                    contextAfter: ""
+                ))
+                resultId += 1
             }
+        }
 
-            let type = parseMessageType(from: json)
-            let timestamp = parseTimestamp(from: json) ?? Date()
-            let fullText = extractFullText(from: json)
+        // Handle leftover
+        let trimmed = leftover.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty,
+           let jsonData = trimmed.data(using: .utf8),
+           let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
+            let type = Self.parseMessageTypeStatic(from: json)
+            let timestamp = Self.parseTimestampStatic(from: json) ?? Date()
+            let fullText = Self.extractFullTextStatic(from: json)
 
-            guard fullText.lowercased().contains(queryLower) else { continue }
-
-            let snippet = createSnippet(from: fullText, query: query, contextLines: Int(contextLines))
-
-            let uuid = (json["uuid"] as? String) ?? UUID().uuidString
-            results.append(SearchResult(
-                id: resultId,
-                sessionId: session.id,
-                projectPath: project.displayName,
-                messageUuid: uuid,
-                messageType: type.rawValue,
-                timestamp: timestamp,
-                snippet: snippet,
-                fullText: fullText,
-                contextBefore: "",
-                contextAfter: ""
-            ))
-            resultId += 1
+            if fullText.lowercased().contains(queryLower) {
+                let snippet = Self.createSnippetStatic(from: fullText, query: query, contextLines: Int(contextLines))
+                let uuid = (json["uuid"] as? String) ?? UUID().uuidString
+                results.append(SearchResult(
+                    id: resultId,
+                    sessionId: session.id,
+                    projectPath: project.displayName,
+                    messageUuid: uuid,
+                    messageType: type.rawValue,
+                    timestamp: timestamp,
+                    snippet: snippet,
+                    fullText: fullText,
+                    contextBefore: "",
+                    contextAfter: ""
+                ))
+                resultId += 1
+            }
         }
     }
 
-    private func extractFullText(from json: [String: Any]) -> String {
+    private nonisolated static func extractFullTextStatic(from json: [String: Any]) -> String {
         var texts: [String] = []
 
         if let message = json["message"] as? [String: Any] {
@@ -767,7 +923,7 @@ final class AppViewModel {
         return texts.joined(separator: "\n")
     }
 
-    private func createSnippet(from text: String, query: String, contextLines: Int) -> String {
+    private nonisolated static func createSnippetStatic(from text: String, query: String, contextLines: Int) -> String {
         let lines = text.components(separatedBy: .newlines)
         let queryLower = query.lowercased()
 
@@ -778,7 +934,6 @@ final class AppViewModel {
                 let snippetLines = lines[start...end]
                 let joined = snippetLines.joined(separator: "\n")
 
-                // Wrap matched text in <mark> tags for highlighting
                 return joined.replacingOccurrences(
                     of: query,
                     with: "<mark>\(query)</mark>",
