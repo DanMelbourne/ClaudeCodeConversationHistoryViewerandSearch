@@ -24,5 +24,7 @@
 	<string>public.app-category.developer-tools</string>
 	<key>com.apple.security.app-sandbox</key>
 	<false/>
+	<key>SentryDSN</key>
+	<string>https://2adc037e75d09838edc32e430f97fa73@o4511466343825408.ingest.us.sentry.io/4511487552978944</string>
 </dict>
 </plist>

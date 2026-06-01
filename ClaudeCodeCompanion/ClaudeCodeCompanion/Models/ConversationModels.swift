@@ -17,8 +17,22 @@ struct Project: Identifiable, Hashable {
     var allPaths: [URL] { [path] + additionalPaths }
 
     /// Whether a given filesystem path belongs to this project.
+    /// Matches exact paths AND worktree paths whose base name matches this project's id.
+    /// This handles search results from worktree folders that no longer exist on disk.
     func ownsPath(_ testPath: String) -> Bool {
-        allPaths.contains { $0.path == testPath }
+        // Direct match against known paths
+        if allPaths.contains(where: { $0.path == testPath }) {
+            return true
+        }
+        // Worktree fallback: if testPath is a worktree of this project's base name,
+        // match even if the worktree folder was deleted from disk.
+        let testFolderName = URL(fileURLWithPath: testPath).lastPathComponent
+        if let worktreeRange = testFolderName.range(of: "--claude-worktrees-") {
+            let baseName = String(testFolderName[..<worktreeRange.lowerBound])
+            return baseName == id
+        }
+        // Also check if testPath's folder name matches this project's id directly
+        return testFolderName == id
     }
 
     func hash(into hasher: inout Hasher) {
@@ -78,24 +92,11 @@ struct ConversationMessage: Identifiable, Hashable {
 // MARK: - ContentBlock
 
 /// Structured content blocks for rich rendering
-enum ContentBlock: Identifiable, Hashable {
+enum ContentBlock: Hashable {
     case text(String)
     case thinking(String)
     case toolUse(name: String, inputJSON: String)
     case toolResult(content: String)
-
-    var id: String {
-        switch self {
-        case .text(let s):
-            return "text-\(s.hashValue)"
-        case .thinking(let s):
-            return "thinking-\(s.hashValue)"
-        case .toolUse(let name, let input):
-            return "tool-\(name)-\(input.hashValue)"
-        case .toolResult(let s):
-            return "result-\(s.hashValue)"
-        }
-    }
 }
 
 // MARK: - ParsedMessage

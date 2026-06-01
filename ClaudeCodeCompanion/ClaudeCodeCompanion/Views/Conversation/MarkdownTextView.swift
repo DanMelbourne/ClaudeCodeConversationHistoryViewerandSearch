@@ -163,8 +163,18 @@ struct MarkdownTextView: View {
         parseInlineMarkdown(text)
     }
 
+    /// Characters that can start an inline markdown construct.
+    private static let markdownTriggers: Set<Character> = ["`", "*", "_", "["]
+
     private func parseInlineMarkdown(_ input: String) -> Text {
-        var result = Text("")
+        // Skip inline parsing for very long text to avoid SwiftUI Text concatenation depth issues.
+        // SwiftUI's ConcatenatedTextStorage.resolve() recurses once per `+` join — more than
+        // ~2000 concatenations will overflow the 8MB main-thread stack.
+        guard input.count < 50_000 else {
+            return Text(input)
+        }
+
+        var segments: [Text] = []
         var remaining = input[input.startIndex..<input.endIndex]
 
         while !remaining.isEmpty {
@@ -172,44 +182,46 @@ struct MarkdownTextView: View {
             if let codeMatch = remaining.firstMatch(of: /`([^`]+)`/) {
                 let before = remaining[remaining.startIndex..<codeMatch.range.lowerBound]
                 if !before.isEmpty {
-                    result = result + Text(String(before))
+                    segments.append(Text(String(before)))
                 }
-                result = result + Text(String(codeMatch.1))
-                    .font(.system(.body, design: .monospaced))
-                    .foregroundColor(DesignConstants.accentColor)
+                segments.append(
+                    Text(String(codeMatch.1))
+                        .font(.system(.body, design: .monospaced))
+                        .foregroundColor(DesignConstants.accentColor)
+                )
                 remaining = remaining[codeMatch.range.upperBound...]
                 continue
             }
 
-            // Bold + italic: ***text*** or ___text___
+            // Bold + italic: ***text***
             if let biMatch = remaining.firstMatch(of: /\*\*\*(.+?)\*\*\*/) {
                 let before = remaining[remaining.startIndex..<biMatch.range.lowerBound]
                 if !before.isEmpty {
-                    result = result + Text(String(before))
+                    segments.append(Text(String(before)))
                 }
-                result = result + Text(String(biMatch.1)).bold().italic()
+                segments.append(Text(String(biMatch.1)).bold().italic())
                 remaining = remaining[biMatch.range.upperBound...]
                 continue
             }
 
-            // Bold: **text** or __text__
+            // Bold: **text**
             if let boldMatch = remaining.firstMatch(of: /\*\*(.+?)\*\*/) {
                 let before = remaining[remaining.startIndex..<boldMatch.range.lowerBound]
                 if !before.isEmpty {
-                    result = result + Text(String(before))
+                    segments.append(Text(String(before)))
                 }
-                result = result + Text(String(boldMatch.1)).bold()
+                segments.append(Text(String(boldMatch.1)).bold())
                 remaining = remaining[boldMatch.range.upperBound...]
                 continue
             }
 
-            // Italic: *text* or _text_ (but not inside words for underscore)
+            // Italic: *text*
             if let italicMatch = remaining.firstMatch(of: /\*(.+?)\*/) {
                 let before = remaining[remaining.startIndex..<italicMatch.range.lowerBound]
                 if !before.isEmpty {
-                    result = result + Text(String(before))
+                    segments.append(Text(String(before)))
                 }
-                result = result + Text(String(italicMatch.1)).italic()
+                segments.append(Text(String(italicMatch.1)).italic())
                 remaining = remaining[italicMatch.range.upperBound...]
                 continue
             }
@@ -218,29 +230,54 @@ struct MarkdownTextView: View {
             if let linkMatch = remaining.firstMatch(of: /\[([^\]]+)\]\(([^)]+)\)/) {
                 let before = remaining[remaining.startIndex..<linkMatch.range.lowerBound]
                 if !before.isEmpty {
-                    result = result + Text(String(before))
+                    segments.append(Text(String(before)))
                 }
                 let linkText = String(linkMatch.1)
                 let urlString = String(linkMatch.2)
                 if let url = URL(string: urlString) {
-                    result = result + Text(.init("[\(linkText)](\(url.absoluteString))"))
-                        .foregroundColor(DesignConstants.accentColor)
-                        .underline()
+                    segments.append(
+                        Text(.init("[\(linkText)](\(url.absoluteString))"))
+                            .foregroundColor(DesignConstants.accentColor)
+                            .underline()
+                    )
                 } else {
-                    result = result + Text(linkText)
-                        .foregroundColor(DesignConstants.accentColor)
+                    segments.append(
+                        Text(linkText)
+                            .foregroundColor(DesignConstants.accentColor)
+                    )
                 }
                 remaining = remaining[linkMatch.range.upperBound...]
                 continue
             }
 
-            // No match found, consume one character to avoid infinite loop
-            let nextChar = remaining[remaining.startIndex]
-            result = result + Text(String(nextChar))
-            remaining = remaining[remaining.index(after: remaining.startIndex)...]
+            // No inline markdown match found. Consume text up to the next potential
+            // markdown trigger character to avoid one-character-at-a-time concatenation
+            // which causes ConcatenatedTextStorage stack overflow.
+            let start = remaining.startIndex
+            var scanIndex = remaining.index(after: start)
+            while scanIndex < remaining.endIndex && !Self.markdownTriggers.contains(remaining[scanIndex]) {
+                scanIndex = remaining.index(after: scanIndex)
+            }
+            segments.append(Text(String(remaining[start..<scanIndex])))
+            remaining = remaining[scanIndex...]
         }
 
-        return result
+        // Build the final Text using balanced binary reduction instead of left-to-right
+        // chaining. This keeps the ConcatenatedTextStorage tree depth O(log n) instead
+        // of O(n), avoiding stack overflow for messages with many segments.
+        return balancedReduce(segments)
+    }
+
+    /// Reduce an array of Text segments into a single Text via balanced binary tree
+    /// concatenation. Depth = O(log n) instead of O(n) for left-folding.
+    private func balancedReduce(_ texts: [Text]) -> Text {
+        guard !texts.isEmpty else { return Text("") }
+        if texts.count == 1 { return texts[0] }
+        if texts.count == 2 { return texts[0] + texts[1] }
+        let mid = texts.count / 2
+        let left = balancedReduce(Array(texts[..<mid]))
+        let right = balancedReduce(Array(texts[mid...]))
+        return left + right
     }
 
     // MARK: - Header Font

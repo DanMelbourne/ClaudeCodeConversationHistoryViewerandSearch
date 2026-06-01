@@ -7,7 +7,8 @@ A native macOS SwiftUI app for browsing, searching, and managing Claude Code con
 - Language: Swift 5+
 - Framework: SwiftUI (macOS 14+)
 - Database: SQLite FTS5 (via sqlite3 C API, built into macOS)
-- No external dependencies
+- Crash reporting: Sentry (via SPM, sentry-cocoa 8.x)
+- No other external dependencies
 
 ## Project Structure
 ```
@@ -22,6 +23,7 @@ ClaudeCodeCompanion/
       Conversation/                 # Message rendering
       Search/                       # Search results
       Editor/                       # CLAUDE.md editor
+      Settings/                     # Sources manager
     Services/                       # Business logic
       JSONLParser.swift             # JSONL file parsing
       DatabaseManager.swift         # SQLite FTS5 index
@@ -29,6 +31,7 @@ ClaudeCodeCompanion/
       FileWatcher.swift             # FSEvents file watcher
       SearchEngine.swift            # FTS5 + raw grep search
       ClaudeMDManager.swift         # CLAUDE.md file management
+      CrashReporter.swift           # Sentry crash reporting wrapper
     Resources/                      # Info.plist, entitlements
 ```
 
@@ -38,11 +41,23 @@ cd ClaudeCodeCompanion
 xcodebuild -scheme ClaudeCodeCompanion -configuration Debug build SYMROOT=/Applications
 ```
 
+## Sentry Setup
+1. Create a new project at sentry.io for this app
+2. Copy the DSN and paste it into `Resources/Info.plist` under the `SentryDSN` key
+3. In debug builds, you can override via env var `SENTRY_DSN`
+4. CrashReporter.swift is initialised in ClaudeCodeCompanionApp.init()
+
+## Bug Review
+```bash
+REVIEW_PROVIDER=openrouter python3 scripts/swarm_review.py --all --ext swift --agentic
+```
+Uses OpenRouter with GPT to review all Swift files. Project-specific bug classes in `.swarm-review.md`.
+
 ## Code Style & Conventions
-- ViewModels: `@MainActor @Observable class`
+- ViewModels: `@Observable class` (not @MainActor on the class, but methods are @MainActor)
 - Services that do I/O: `actor` (e.g., DatabaseManager, JSONLParser)
+- Heavy file I/O: `Task.detached` with `nonisolated static` helpers, results assigned back on MainActor
 - Use SQLite parameter binding, never string interpolation for queries
-- No external dependencies — everything uses macOS built-in frameworks
 - Target macOS 14+ (Sonoma)
 
 ## Testing
@@ -54,12 +69,16 @@ xcodebuild -scheme ClaudeCodeCompanion -configuration Debug build SYMROOT=/Appli
 - @Environment for passing AppViewModel to views
 - FTS5 external content tables synced via triggers
 - Debounced file watching and auto-save
+- Background loading with Task cancellation for rapid navigation
 
 ## Things to Avoid
-- Don't load entire JSONL files into memory — stream line by line
-- Don't block main thread with database operations
+- Don't load entire JSONL files into memory — stream via FileHandle in 256KB chunks
+- Don't block main thread with file I/O — use Task.detached for all filesystem work
 - Don't use string interpolation in SQL queries
 - Don't hardcode paths — derive from FileManager APIs
+- Don't chain SwiftUI Text concatenations deeply (>500 joins) — causes ConcatenatedTextStorage stack overflow. Use balanced binary reduction or AttributedString for long content.
 
 ## Testing gaps to watch for
-- (Will be updated as bugs are found)
+- SwiftUI Text concatenation depth: messages with many inline markdown elements or very long plain text can overflow the stack. Guard with length check and balanced tree reduction.
+- Main thread file I/O: any new method that reads files must use Task.detached, never synchronous on MainActor.
+- Task cancellation: rapid project/session switching must cancel in-flight loading tasks.

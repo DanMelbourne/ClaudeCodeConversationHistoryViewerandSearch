@@ -188,7 +188,7 @@ private struct MessageView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 6) {
-                        ForEach(message.blocks) { block in
+                        ForEach(Array(message.blocks.enumerated()), id: \.offset) { _, block in
                             ContentBlockView(block: block)
                         }
                     }

@@ -4,6 +4,10 @@ import SwiftUI
 struct ClaudeCodeCompanionApp: App {
     @State private var appViewModel = AppViewModel()
 
+    init() {
+        CrashReporter.configure(enabled: true)
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()

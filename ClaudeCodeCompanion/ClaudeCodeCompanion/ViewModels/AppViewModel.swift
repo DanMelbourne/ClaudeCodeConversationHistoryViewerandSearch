@@ -78,6 +78,7 @@ final class AppViewModel {
     // MARK: - Debounce
 
     @ObservationIgnored private var searchDebounceTask: Task<Void, Never>?
+    @ObservationIgnored private var navigateTask: Task<Void, Never>?
 
     // MARK: - CLAUDE.md Editor
 
@@ -210,7 +211,8 @@ final class AppViewModel {
                 }
             } else {
                 if baseProjects[folderName] != nil {
-                    baseProjects[folderName]!.worktrees.append(info)
+                    // Base folder found after worktrees were already added — assign as base, not worktree
+                    baseProjects[folderName]!.base = info
                 } else {
                     baseProjects[folderName] = (base: info, worktrees: [])
                 }
@@ -259,6 +261,7 @@ final class AppViewModel {
     @MainActor
     func loadSessions(for project: Project) {
         loadSessionsTask?.cancel()
+        navigateTask?.cancel()
         isLoadingSessions = true
 
         let projectId = project.id
@@ -320,6 +323,7 @@ final class AppViewModel {
     @MainActor
     func loadMessages(for session: ConversationSession) {
         loadMessagesTask?.cancel()
+        navigateTask?.cancel()
 
         guard FileManager.default.fileExists(atPath: session.filePath.path) else {
             messages = []
@@ -500,16 +504,24 @@ final class AppViewModel {
         // Match project by any of its paths (base or worktree)
         guard let project = projects.first(where: { $0.ownsPath(result.projectPath) }) else { return }
 
+        // Cancel any in-flight session/message loads and prior navigations
+        loadSessionsTask?.cancel()
+        loadMessagesTask?.cancel()
+        navigateTask?.cancel()
+
         selectedProject = project
         detailDestination = .conversation
+        isLoadingSessions = true
+        isLoadingMessages = true
 
         let projectId = project.id
         let allPaths = project.allPaths
         let sessionId = result.sessionId
         let targetUuid = result.messageUuid
 
-        // Load sessions and messages in background, then navigate
-        Task.detached(priority: .userInitiated) { [weak self] in
+        // Load sessions and messages in background, then navigate.
+        // Assign to tracked tasks so future calls can cancel this one.
+        let task = Task.detached(priority: .userInitiated) { [weak self] in
             let loadedSessions = Self.enumerateSessions(projectId: projectId, paths: allPaths)
 
             var session = loadedSessions.first(where: { $0.id == sessionId })
@@ -544,11 +556,19 @@ final class AppViewModel {
                 }
             }
 
-            guard let session else { return }
+            guard let session else {
+                await MainActor.run { [weak self] in
+                    self?.isLoadingSessions = false
+                    self?.isLoadingMessages = false
+                }
+                return
+            }
+            guard !Task.isCancelled else { return }
             let parsed = Self.parseMessagesStreaming(from: session.filePath)
+            guard !Task.isCancelled else { return }
 
             await MainActor.run { [weak self] in
-                guard let self else { return }
+                guard let self, !Task.isCancelled else { return }
                 self.sessions = loadedSessions
                 self.selectedSession = session
                 self.messages = parsed
@@ -562,6 +582,7 @@ final class AppViewModel {
                 self?.scrollToMessageId = targetUuid
             }
         }
+        navigateTask = task
     }
 
 
@@ -570,36 +591,57 @@ final class AppViewModel {
     @MainActor
     func loadClaudeMD() {
         let homeDir = FileManager.default.homeDirectoryForCurrentUser
-
-        // Global CLAUDE.md
         let globalPath = homeDir.appendingPathComponent(".claude/CLAUDE.md")
-        claudeMDGlobalContent = (try? String(contentsOf: globalPath, encoding: .utf8)) ?? ""
-
-        // Project CLAUDE.md
+        let projectPath: URL?
         if let project = claudeMDEditorProject ?? selectedProject {
-            let projectClaudeMD = findProjectClaudeMD(for: project)
-            claudeMDProjectContent = (try? String(contentsOf: projectClaudeMD, encoding: .utf8)) ?? ""
+            projectPath = findProjectClaudeMD(for: project)
+        } else {
+            projectPath = nil
         }
 
-        claudeMDHasUnsavedChanges = false
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let globalContent = (try? String(contentsOf: globalPath, encoding: .utf8)) ?? ""
+            let projectContent: String
+            if let projectPath {
+                projectContent = (try? String(contentsOf: projectPath, encoding: .utf8)) ?? ""
+            } else {
+                projectContent = ""
+            }
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                self.claudeMDGlobalContent = globalContent
+                self.claudeMDProjectContent = projectContent
+                self.claudeMDHasUnsavedChanges = false
+            }
+        }
     }
 
     @MainActor
     func saveClaudeMD() {
         let homeDir = FileManager.default.homeDirectoryForCurrentUser
-
-        switch claudeMDEditorTab {
-        case .global:
-            let globalPath = homeDir.appendingPathComponent(".claude/CLAUDE.md")
-            try? claudeMDGlobalContent.write(to: globalPath, atomically: true, encoding: .utf8)
-        case .project:
-            if let project = claudeMDEditorProject ?? selectedProject {
-                let projectClaudeMD = findProjectClaudeMD(for: project)
-                try? claudeMDProjectContent.write(to: projectClaudeMD, atomically: true, encoding: .utf8)
-            }
+        let tab = claudeMDEditorTab
+        let globalContent = claudeMDGlobalContent
+        let projectContent = claudeMDProjectContent
+        let projectPath: URL?
+        if let project = claudeMDEditorProject ?? selectedProject {
+            projectPath = findProjectClaudeMD(for: project)
+        } else {
+            projectPath = nil
         }
 
         claudeMDHasUnsavedChanges = false
+
+        Task.detached(priority: .userInitiated) {
+            switch tab {
+            case .global:
+                let globalPath = homeDir.appendingPathComponent(".claude/CLAUDE.md")
+                try? globalContent.write(to: globalPath, atomically: true, encoding: .utf8)
+            case .project:
+                if let projectPath {
+                    try? projectContent.write(to: projectPath, atomically: true, encoding: .utf8)
+                }
+            }
+        }
     }
 
     // MARK: - Copy All Results
@@ -753,22 +795,15 @@ final class AppViewModel {
         return .system
     }
 
-    private nonisolated static let isoFormatter: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return f
-    }()
-
-    private nonisolated static let isoFallbackFormatter: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime]
-        return f
-    }()
-
     private nonisolated static func parseTimestampStatic(from json: [String: Any]) -> Date? {
         if let ts = json["timestamp"] as? String {
-            if let date = isoFormatter.date(from: ts) { return date }
-            return isoFallbackFormatter.date(from: ts)
+            // Create per-call — ISO8601DateFormatter (NSFormatter subclass) is not thread-safe.
+            let fmtFrac = ISO8601DateFormatter()
+            fmtFrac.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = fmtFrac.date(from: ts) { return date }
+            let fmtPlain = ISO8601DateFormatter()
+            fmtPlain.formatOptions = [.withInternetDateTime]
+            return fmtPlain.date(from: ts)
         }
         if let ts = json["timestamp"] as? Double {
             return Date(timeIntervalSince1970: ts / 1000)

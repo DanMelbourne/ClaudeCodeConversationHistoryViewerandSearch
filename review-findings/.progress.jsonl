@@ -1,0 +1,20 @@
+{"_head": "8997080dc19faedd583dbb461deb10855b17a6a2"}
+{"path": "ClaudeCodeCompanion/ClaudeCodeCompanion/Services/CrashReporter.swift", "status": "clean", "detail": ""}
+{"path": "ClaudeCodeCompanion/ClaudeCodeCompanion/Models/ConversationSource.swift", "status": "clean", "detail": ""}
+{"path": "ClaudeCodeCompanion/ClaudeCodeCompanion/Views/ChatList/ChatListView.swift", "status": "clean", "detail": ""}
+{"path": "ClaudeCodeCompanion/ClaudeCodeCompanion/Models/ConversationModels.swift", "status": "found", "detail": ""}
+{"path": "ClaudeCodeCompanion/ClaudeCodeCompanion/Services/JSONLParser.swift", "status": "found", "detail": ""}
+{"path": "ClaudeCodeCompanion/ClaudeCodeCompanion/Views/DetailView.swift", "status": "clean", "detail": ""}
+{"path": "ClaudeCodeCompanion/ClaudeCodeCompanion/Views/Conversation/ConversationView.swift", "status": "clean", "detail": ""}
+{"path": "ClaudeCodeCompanion/ClaudeCodeCompanion/Services/FileWatcher.swift", "status": "found", "detail": ""}
+{"path": "ClaudeCodeCompanion/ClaudeCodeCompanion/Services/ConversationStore.swift", "status": "found", "detail": ""}
+{"path": "ClaudeCodeCompanion/ClaudeCodeCompanion/Services/SearchEngine.swift", "status": "found", "detail": ""}
+{"path": "ClaudeCodeCompanion/ClaudeCodeCompanion/Views/Conversation/MarkdownTextView.swift", "status": "clean", "detail": ""}
+{"path": "ClaudeCodeCompanion/ClaudeCodeCompanion/ClaudeCodeCompanionApp.swift", "status": "found", "detail": ""}
+{"path": "ClaudeCodeCompanion/ClaudeCodeCompanion/Views/Editor/ClaudeMDEditorView.swift", "status": "err", "detail": "null content (reasoning model? raise max_tokens or switch model)"}
+{"path": "ClaudeCodeCompanion/ClaudeCodeCompanion/Views/ContentView.swift", "status": "err", "detail": "null content (reasoning model? raise max_tokens or switch model)"}
+{"path": "ClaudeCodeCompanion/ClaudeCodeCompanion/Views/Search/SearchResultsView.swift", "status": "found", "detail": ""}
+{"path": "ClaudeCodeCompanion/ClaudeCodeCompanion/Views/Sidebar/SidebarView.swift", "status": "found", "detail": ""}
+{"path": "ClaudeCodeCompanion/ClaudeCodeCompanion/ViewModels/AppViewModel.swift", "status": "found", "detail": ""}
+{"path": "ClaudeCodeCompanion/ClaudeCodeCompanion/Views/Settings/SourcesManagerView.swift", "status": "found", "detail": ""}
+{"path": "ClaudeCodeCompanion/ClaudeCodeCompanion/Services/DatabaseManager.swift", "status": "found", "detail": ""}

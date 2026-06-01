@@ -24,3 +24,12 @@
 ## 2026-05-13: Claude Code visual aesthetic
 **Decision**: Match Claude Code for Mac's dark developer-tool look.
 **Rationale**: Target audience is Claude Code developers. Familiar visual language builds trust and feels native to their workflow.
+
+## 2026-06-01: Sentry for crash reporting
+**Decision**: Use Sentry (sentry-cocoa via SPM) for crash reporting; first external dependency.
+**Alternatives considered**: Apple's built-in crash reporting (limited to App Store apps), custom crash log collection (too much work).
+**Rationale**: Sentry is the standard for crash reporting in non-App Store apps. Matches ScreenshotTray's integration pattern for consistency. Privacy-first: no session tracking, no performance tracing, opt-out possible.
+
+## 2026-06-01: Balanced binary reduction for Text concatenation
+**Decision**: Use balanced tree reduction instead of left-to-right `Text + Text + ...` chaining for inline markdown rendering.
+**Rationale**: SwiftUI's `ConcatenatedTextStorage.resolve()` recurses once per `+` join. Left-to-right chaining of N segments creates O(N) recursion depth, which overflows the 8MB main-thread stack at ~5,500 joins. Balanced reduction keeps depth at O(log N) — 13 levels for 5,500 segments instead of 5,500. Combined with batching plain text runs (instead of one character at a time) and a 50K char guard, this eliminates the crash.
