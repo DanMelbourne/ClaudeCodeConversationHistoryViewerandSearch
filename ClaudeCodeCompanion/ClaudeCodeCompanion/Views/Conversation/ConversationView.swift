@@ -2,6 +2,10 @@ import SwiftUI
 
 struct ConversationView: View {
     @Environment(AppViewModel.self) var appViewModel
+    @State private var localSearchText: String = ""
+    @State private var localSearchResults: [String] = []  // message IDs that match
+    @State private var localSearchIndex: Int = 0
+    @FocusState private var localSearchFocused: Bool
 
     var body: some View {
         Group {
@@ -22,49 +26,177 @@ struct ConversationView: View {
 
     private var conversationContent: some View {
         ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(filteredMessages.enumerated()), id: \.element.id) { index, message in
-                        if shouldShowDateDivider(at: index) {
-                            DateDivider(date: message.timestamp)
-                                .padding(.vertical, 8)
-                        }
+            VStack(spacing: 0) {
+                // Local find bar
+                if appViewModel.showConversationSearch {
+                    localSearchBar(proxy: proxy)
+                }
 
-                        if appViewModel.viewMode == .raw {
-                            RawMessageView(message: message)
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(filteredMessages.enumerated()), id: \.element.id) { index, message in
+                            if shouldShowDateDivider(at: index) {
+                                DateDivider(date: message.timestamp)
+                                    .padding(.vertical, 8)
+                            }
+
+                            if appViewModel.viewMode == .raw {
+                                RawMessageView(message: message)
+                                    .id(message.id)
+                            } else {
+                                MessageView(
+                                    message: message,
+                                    showSystemMessages: appViewModel.showSystemMessages,
+                                    isHighlighted: appViewModel.scrollToMessageId == message.id,
+                                    highlightTerm: appViewModel.showConversationSearch ? localSearchText : nil
+                                )
                                 .id(message.id)
-                        } else {
-                            MessageView(
-                                message: message,
-                                showSystemMessages: appViewModel.showSystemMessages,
-                                isHighlighted: appViewModel.scrollToMessageId == message.id
-                            )
-                            .id(message.id)
+                            }
                         }
                     }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
+                .overlay(alignment: .topTrailing) {
+                    systemMessageToggle
+                        .padding(12)
+                }
             }
-            .overlay(alignment: .topTrailing) {
-                systemMessageToggle
-                    .padding(12)
+            .onKeyPress(.escape) {
+                if appViewModel.showConversationSearch {
+                    appViewModel.showConversationSearch = false
+                    clearLocalSearch()
+                    return .handled
+                }
+                return .ignored
             }
             .onChange(of: appViewModel.scrollToMessageId) { _, messageId in
                 guard let messageId else { return }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                // Single scroll attempt after a short delay for the view to render
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    guard appViewModel.scrollToMessageId == messageId else { return }
                     withAnimation(.easeInOut(duration: 0.3)) {
                         proxy.scrollTo(messageId, anchor: .center)
                     }
-                }
-                Task { @MainActor in
-                    try? await Task.sleep(for: .seconds(4))
-                    withAnimation(.easeOut(duration: 0.8)) {
-                        appViewModel.scrollToMessageId = nil
+                    // Clear highlight after 4 seconds
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(4))
+                        guard appViewModel.scrollToMessageId == messageId else { return }
+                        withAnimation(.easeOut(duration: 0.8)) {
+                            appViewModel.scrollToMessageId = nil
+                        }
                     }
                 }
             }
+            .onChange(of: appViewModel.selectedSession) { _, _ in
+                // Clear local search when switching sessions
+                appViewModel.showConversationSearch = false
+                clearLocalSearch()
+            }
         }
+    }
+
+    // MARK: - Local Search Bar
+
+    private func localSearchBar(proxy: ScrollViewProxy) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            TextField("Find in conversation...", text: $localSearchText)
+                .textFieldStyle(.plain)
+                .font(.system(.caption, design: .monospaced))
+                .focused($localSearchFocused)
+                .onSubmit { navigateLocalSearch(direction: 1, proxy: proxy) }
+                .onChange(of: localSearchText) { _, _ in
+                    performLocalSearch()
+                    if let first = localSearchResults.first {
+                        localSearchIndex = 0
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            proxy.scrollTo(first, anchor: .center)
+                        }
+                    }
+                }
+
+            if !localSearchResults.isEmpty {
+                Text("\(localSearchIndex + 1)/\(localSearchResults.count)")
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .frame(minWidth: 36)
+
+                Button { navigateLocalSearch(direction: -1, proxy: proxy) } label: {
+                    Image(systemName: "chevron.up").font(.caption2)
+                }
+                .buttonStyle(.borderless)
+                .help("Previous match")
+
+                Button { navigateLocalSearch(direction: 1, proxy: proxy) } label: {
+                    Image(systemName: "chevron.down").font(.caption2)
+                }
+                .buttonStyle(.borderless)
+                .help("Next match")
+            } else if !localSearchText.isEmpty {
+                Text("No matches")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+
+            Button {
+                appViewModel.showConversationSearch = false
+                clearLocalSearch()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Close find bar")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    // MARK: - Local Search Logic
+
+    private func performLocalSearch() {
+        let query = localSearchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else {
+            localSearchResults = []
+            localSearchIndex = 0
+            return
+        }
+
+        localSearchResults = filteredMessages.compactMap { message in
+            let text = message.blocks.compactMap { block -> String? in
+                switch block {
+                case .text(let s): return s
+                case .thinking(let s): return s
+                case .toolUse(let name, let input): return "\(name) \(input)"
+                case .toolResult(let s): return s
+                }
+            }.joined(separator: " ")
+
+            return text.lowercased().contains(query) ? message.id : nil
+        }
+        localSearchIndex = 0
+    }
+
+    private func navigateLocalSearch(direction: Int, proxy: ScrollViewProxy) {
+        guard !localSearchResults.isEmpty else { return }
+        localSearchIndex = (localSearchIndex + direction + localSearchResults.count) % localSearchResults.count
+        let targetId = localSearchResults[localSearchIndex]
+        withAnimation(.easeInOut(duration: 0.3)) {
+            proxy.scrollTo(targetId, anchor: .center)
+        }
+        appViewModel.scrollToMessageId = targetId
+    }
+
+    private func clearLocalSearch() {
+        localSearchText = ""
+        localSearchResults = []
+        localSearchIndex = 0
     }
 
     // MARK: - System Message Toggle
@@ -166,6 +298,7 @@ private struct MessageView: View {
     let message: ParsedMessage
     let showSystemMessages: Bool
     var isHighlighted: Bool = false
+    var highlightTerm: String? = nil
 
     var body: some View {
         if message.type == .system && !showSystemMessages {

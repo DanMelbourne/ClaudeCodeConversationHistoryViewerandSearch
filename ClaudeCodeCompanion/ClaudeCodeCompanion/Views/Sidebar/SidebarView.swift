@@ -74,6 +74,9 @@ struct SidebarView: View {
                 .environment(appViewModel)
         }
         .onChange(of: appViewModel.selectedProject) { _, newProject in
+            // Skip when navigateToSearchResult is driving — it manages
+            // sessions, selectedSession, and detailDestination itself.
+            guard !appViewModel.isNavigatingFromSearch else { return }
             if let project = newProject {
                 appViewModel.loadSessions(for: project)
                 appViewModel.selectedSession = nil

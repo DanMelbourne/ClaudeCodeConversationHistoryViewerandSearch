@@ -80,6 +80,10 @@ final class AppViewModel {
     @ObservationIgnored private var searchDebounceTask: Task<Void, Never>?
     @ObservationIgnored private var navigateTask: Task<Void, Never>?
 
+    /// When true, the sidebar's onChange(of: selectedProject) should NOT reset
+    /// the session or reload sessions — navigateToSearchResult handles it.
+    var isNavigatingFromSearch: Bool = false
+
     // MARK: - CLAUDE.md Editor
 
     var claudeMDGlobalContent: String = ""
@@ -96,6 +100,10 @@ final class AppViewModel {
     // MARK: - System Messages
 
     var showSystemMessages: Bool = false
+
+    // MARK: - In-Conversation Search
+
+    var showConversationSearch: Bool = false
 
     // MARK: - Database
 
@@ -408,7 +416,8 @@ final class AppViewModel {
 
     @MainActor
     func performSearch() async {
-        guard !searchText.isEmpty else {
+        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
             searchResults = []
             currentSearchResultIndex = 0
             return
@@ -473,7 +482,8 @@ final class AppViewModel {
     func debouncedSearch() {
         searchDebounceTask?.cancel()
 
-        guard !searchText.isEmpty else {
+        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
             searchResults = []
             currentSearchResultIndex = 0
             detailDestination = .conversation
@@ -509,6 +519,8 @@ final class AppViewModel {
         loadMessagesTask?.cancel()
         navigateTask?.cancel()
 
+        // Prevent the sidebar's onChange from resetting session/destination
+        isNavigatingFromSearch = true
         selectedProject = project
         detailDestination = .conversation
         isLoadingSessions = true
@@ -522,6 +534,15 @@ final class AppViewModel {
         // Load sessions and messages in background, then navigate.
         // Assign to tracked tasks so future calls can cancel this one.
         let task = Task.detached(priority: .userInitiated) { [weak self] in
+            // Always clear the navigation flag when this task exits, regardless of path.
+            defer {
+                Task { @MainActor [weak self] in
+                    self?.isNavigatingFromSearch = false
+                    self?.isLoadingSessions = false
+                    self?.isLoadingMessages = false
+                }
+            }
+
             let loadedSessions = Self.enumerateSessions(projectId: projectId, paths: allPaths)
 
             var session = loadedSessions.first(where: { $0.id == sessionId })
@@ -556,13 +577,7 @@ final class AppViewModel {
                 }
             }
 
-            guard let session else {
-                await MainActor.run { [weak self] in
-                    self?.isLoadingSessions = false
-                    self?.isLoadingMessages = false
-                }
-                return
-            }
+            guard let session else { return }
             guard !Task.isCancelled else { return }
             let parsed = Self.parseMessagesStreaming(from: session.filePath)
             guard !Task.isCancelled else { return }
@@ -572,8 +587,6 @@ final class AppViewModel {
                 self.sessions = loadedSessions
                 self.selectedSession = session
                 self.messages = parsed
-                self.isLoadingSessions = false
-                self.isLoadingMessages = false
             }
 
             // Small delay for scroll view to render
