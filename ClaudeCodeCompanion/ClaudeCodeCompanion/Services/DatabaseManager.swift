@@ -246,7 +246,12 @@ actor DatabaseManager {
     // MARK: - Search
 
     /// Full-text search using FTS5. Returns results with highlighted snippets.
-    func search(query: String, projectPath: String? = nil, sessionId: String? = nil, limit: Int = 100) throws -> [SearchResult] {
+    ///
+    /// - projectPath: exact project_path match (single folder).
+    /// - projectBasePath: match a project's base folder AND all of its worktrees
+    ///   (folders named `<base>--claude-worktrees-…`), including worktree folders
+    ///   that no longer exist on disk. Use this for "Current Project" scope.
+    func search(query: String, projectPath: String? = nil, projectBasePath: String? = nil, sessionId: String? = nil, limit: Int = 100) throws -> [SearchResult] {
         guard let db else { throw DBError.notOpen }
 
         // Sanitize the query for FTS5: wrap each word in quotes to prevent syntax errors
@@ -267,15 +272,16 @@ actor DatabaseManager {
             JOIN messages m ON m.id = messages_fts.rowid
             WHERE messages_fts MATCH ?
         """
-        var bindIndex: Int32 = 2
 
         if projectPath != nil {
             sql += " AND m.project_path = ?"
-            bindIndex += 1
+        }
+        if projectBasePath != nil {
+            // Base folder exactly, OR any worktree folder under that base.
+            sql += " AND (m.project_path = ? OR m.project_path LIKE ? ESCAPE '\\')"
         }
         if sessionId != nil {
             sql += " AND m.session_id = ?"
-            bindIndex += 1
         }
 
         sql += " ORDER BY rank LIMIT ?"
@@ -293,6 +299,13 @@ actor DatabaseManager {
 
         if let projectPath {
             sqlite3_bind_text(stmt, paramIndex, (projectPath as NSString).utf8String, -1, transient)
+            paramIndex += 1
+        }
+        if let projectBasePath {
+            sqlite3_bind_text(stmt, paramIndex, (projectBasePath as NSString).utf8String, -1, transient)
+            paramIndex += 1
+            let worktreePattern = Self.escapeLike(projectBasePath) + "--claude-worktrees-%"
+            sqlite3_bind_text(stmt, paramIndex, (worktreePattern as NSString).utf8String, -1, transient)
             paramIndex += 1
         }
         if let sessionId {
@@ -629,6 +642,20 @@ actor DatabaseManager {
         sqlite3_finalize(afterStmt)
 
         return (before, after)
+    }
+
+    /// Escape SQL LIKE wildcards (`%`, `_`) and the escape char itself so a literal
+    /// path can be used as a LIKE prefix. Pairs with `ESCAPE '\'` in the query.
+    nonisolated static func escapeLike(_ s: String) -> String {
+        var out = ""
+        out.reserveCapacity(s.count)
+        for ch in s {
+            if ch == "\\" || ch == "%" || ch == "_" {
+                out.append("\\")
+            }
+            out.append(ch)
+        }
+        return out
     }
 
     /// Sanitize a search query for FTS5. Wraps terms in quotes and joins with spaces (implicit AND).

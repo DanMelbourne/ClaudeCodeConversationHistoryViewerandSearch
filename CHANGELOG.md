@@ -1,5 +1,16 @@
 # Changelog
 
+## Build 4 — 2026-06-20
+
+App-hang fixes (diagnosed from Sentry hang reports) and search correctness.
+
+- **HANG FIX**: `SearchResultsView` rewritten from nested `VStack`/`ForEach` sections to a single flat `LazyVStack` over a typed item array. The old structure defeated `LazyVStack` laziness — a search returning 500 results built/tore down all 500 row views eagerly on the main thread, causing multi-second hangs (`swift_arrayDestroy` / deep `NSView` layout recursion in Sentry).
+- **SEARCH FIX**: Scope picker now has an `.onChange` that re-runs the search. Previously, switching to "Current Project" left stale "All Projects" results on screen (showing other projects).
+- **SEARCH FIX**: "Current Project" scope now matches the project's base folder AND all worktree folders via a single DB base-path query — including worktrees deleted from disk that the old per-`allPaths` query missed.
+- Fixed wrong-row highlight in search results (`result.id` was compared against an array index instead of the current result's id).
+- Sentry: enabled app-hang tracking (`enableAppHangTracking`, 2s threshold) — the source of these diagnoses.
+- In-conversation search (Cmd+F) and Cmd+S save for the CLAUDE.md editor.
+
 ## Build 3 — 2026-05-17
 
 Performance overhaul: eliminated all main-thread file I/O that caused UI freezes and spinning beach balls.

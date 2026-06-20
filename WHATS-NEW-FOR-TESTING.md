@@ -1,5 +1,19 @@
 # What's New for Testing
 
+## Build 4 — 2026-06-20
+
+### Search scope (the reported bug)
+- [ ] Select a project (e.g. ScreenshotTray), type a query, switch scope to "Current Project" — results update immediately and show ONLY that project (no other projects like Aluminations)
+- [ ] Switch scope back to "All Projects" — results re-run and include all projects
+- [ ] "Current Project" includes results from the project's worktrees (merged) too
+- [ ] Switching scope with an empty search box does nothing (no error)
+
+### App hangs (Sentry-diagnosed)
+- [ ] Search returning many results (300–500) renders without a multi-second beachball
+- [ ] Scrolling a large result list is smooth (rows render lazily as you scroll)
+- [ ] Clearing/changing a large search doesn't freeze the UI
+- [ ] Current search result (up/down navigator) highlights the CORRECT row
+
 ## Build 3 — 2026-05-17
 
 ### Performance (main focus)

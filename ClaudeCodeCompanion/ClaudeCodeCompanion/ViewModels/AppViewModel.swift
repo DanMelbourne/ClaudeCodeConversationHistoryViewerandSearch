@@ -442,18 +442,19 @@ final class AppViewModel {
                     currentSearchResultIndex = 0
                     return
                 }
-                // Search across all paths (base + worktrees) for this project
-                var combined: [SearchResult] = []
-                for folderURL in project.allPaths {
-                    let results = try await store.db.search(
-                        query: searchText,
-                        projectPath: folderURL.path,
-                        sessionId: nil,
-                        limit: 500
-                    )
-                    combined.append(contentsOf: results)
-                }
-                searchResults = combined
+                // Match the project's base folder AND all its worktrees (incl. ones
+                // deleted from disk) via a single base-path query.
+                let basePath = project.path
+                    .deletingLastPathComponent()
+                    .appendingPathComponent(project.id)
+                    .path
+                let results = try await store.db.search(
+                    query: searchText,
+                    projectBasePath: basePath,
+                    sessionId: nil,
+                    limit: 500
+                )
+                searchResults = results
 
             case .currentChat:
                 let results = try await store.db.search(

@@ -60,6 +60,13 @@ struct ContentView: View {
                 .pickerStyle(.menu)
                 .frame(width: 140)
                 .help("Search scope")
+                .onChange(of: appViewModel.searchScope) { _, _ in
+                    // Re-run the search so the new scope takes effect immediately.
+                    guard !appViewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                    Task { @MainActor in
+                        await appViewModel.immediateSearch()
+                    }
+                }
             }
 
             // Mode toggle
