@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct SidebarView: View {
@@ -62,9 +63,18 @@ struct SidebarView: View {
                 .buttonStyle(.plain)
                 .padding(.vertical, 4)
                 .help("Edit global or project CLAUDE.md files")
+
+                ConsolidatedExportMenu()
             }
         }
         .listStyle(.sidebar)
+        .contextMenu(forSelectionType: Project.self) { selectedProjects in
+            if let project = selectedProjects.first {
+                Button("Reveal in Finder") {
+                    NSWorkspace.shared.activateFileViewerSelecting([project.path])
+                }
+            }
+        }
         .background(.ultraThinMaterial)
         .sheet(isPresented: Binding(
             get: { appViewModel.showSourcesManager },
@@ -83,7 +93,43 @@ struct SidebarView: View {
                 appViewModel.detailDestination = .conversation
             }
         }
+        .alert(
+            "Export Failed",
+            isPresented: Binding(
+                get: { appViewModel.exportErrorMessage != nil },
+                set: { if !$0 { appViewModel.exportErrorMessage = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(appViewModel.exportErrorMessage ?? "Please choose another location and try again.")
+        }
     }
+}
+
+private struct ConsolidatedExportMenu: View {
+    @Environment(AppViewModel.self) private var appViewModel
+
+    var body: some View {
+        Menu {
+            Button("Save Consolidated History…") {
+                appViewModel.presentSelectedProjectExportSavePanel()
+            }
+        } label: {
+            Label {
+                Text("Export Project Conversations")
+                    .fontWeight(.medium)
+            } icon: {
+                Image(systemName: "square.and.arrow.up")
+                    .foregroundStyle(DesignConstants.accentColor)
+            }
+        }
+        .menuStyle(.borderlessButton)
+        .disabled(appViewModel.selectedProject == nil)
+        .padding(.vertical, 4)
+        .help("Save this project's conversations as one text file")
+    }
+
 }
 
 // MARK: - Source Status Row (sidebar compact view)

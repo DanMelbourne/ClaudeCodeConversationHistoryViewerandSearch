@@ -11,6 +11,8 @@ A native macOS app for browsing, searching, and managing Claude Code conversatio
 - **Copy results** — One-click copy of individual matches or all results
 - **CLAUDE.md editor** — Edit global and per-project CLAUDE.md files with auto-save and starter templates
 - **Index and Raw modes** — Toggle between parsed view and raw JSON
+- **Finder reveal** — Open a project’s conversation-history folder directly from the sidebar
+- **Project export** — Save the selected project's visible user and Claude chat as one plain-text file
 
 ## Requirements
 
@@ -20,6 +22,8 @@ A native macOS app for browsing, searching, and managing Claude Code conversatio
 ## Building
 
 Open `ClaudeCodeCompanion/ClaudeCodeCompanion.xcodeproj` in Xcode and build (Cmd+B). No external dependencies.
+
+For a distributable, notarized DMG and an updated `/Applications/Claude Code Companion.app`, run `./dist.sh`. It requires a Developer ID Application certificate and a `notarytool` keychain profile named `claude-code-companion-notarize` (or set `NOTARY_PROFILE`). Use `SKIP_NOTARIZE=1 ./dist.sh` only for local signed builds.
 
 ## Data
 

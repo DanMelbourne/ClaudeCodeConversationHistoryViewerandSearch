@@ -1,5 +1,13 @@
 # What's New
 
+- Install Claude Code Companion from a signed, notarized disk image.
+
+- Jump from any project to its conversation-history folder in Finder.
+- Keep a complete, portable text export of a project's conversations.
+- Export a clean copy of the user and Claude chat, without internal activity.
+- Know exactly how many chat messages were saved in each export.
+- Read a project’s exported conversation history in chronological order.
+
 ## Version 1.0
 
 - Browse all your Claude Code conversations organised by project

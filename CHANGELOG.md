@@ -1,5 +1,17 @@
 # Changelog
 
+## Build 5 — 2026-07-21
+
+- Added a Developer ID-signed, notarized DMG distribution pipeline.
+
+## Build 5 — 2026-07-21
+
+- Added Finder reveal for each project’s conversation-history folder in the sidebar.
+- Added a single-file, plain-text export for the selected project's conversations.
+- Exports now omit hidden system and internal records, matching the interactive chat.
+- Completed exports report their message count and never replace a destination with an empty file.
+- Consolidated project histories now run from the oldest conversation to the newest.
+
 ## Build 4 — 2026-06-20
 
 App-hang fixes (diagnosed from Sentry hang reports) and search correctness.

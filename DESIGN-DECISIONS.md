@@ -1,5 +1,13 @@
 # Design Decisions
 
+## 2026-07-21: Developer ID DMG distribution pipeline
+**Decision**: Add a project-root `dist.sh` modelled on ScreenshotTray’s release gates: require a Developer ID identity, archive the Xcode app, re-sign embedded frameworks inside-out with hardened runtime, verify the signature, optionally notarize and staple, then build a compressed DMG containing the app and an Applications alias.
+**Rationale**: This app needs the same portable, Gatekeeper-compatible distribution path, but it has no iCloud entitlement, Sparkle framework, helper executable, or custom disk-image assets. Keeping only the applicable stages avoids copying ScreenshotTray-specific release complexity while retaining its security-critical checks.
+
+## 2026-07-21: Finder reveal and consolidated conversation export
+**Decision**: Add a native list-selection context menu to the Projects sidebar plus File → “Reveal Selected Project in Finder” (Command-Shift-R), and expose “Export Project Conversations” → “Save Consolidated History…” in both the sidebar actions and File menu. Both export controls are disabled without a selected project and open one shared standard macOS save panel. On success, show the exact exported conversation/message counts and offer Finder reveal; reject a zero-message export.
+**Rationale**: A list-level selection context menu owns the full macOS sidebar row hit area, while the File-menu commands remain available when context-menu discovery is unreliable. The project row already owns the filesystem URL for its conversation-history folder, so Finder can reveal the exact data backing that sidebar entry. Exporting follows the interactive chat's default filter—user and assistant records only—then streams that selected project's sessions oldest-to-newest without loading JSONL files into memory; writing first to a sibling temporary file prevents a failed export from damaging an existing destination file.
+
 ## 2026-05-13: SQLite FTS5 for search indexing
 **Decision**: Use SQLite FTS5 as the primary search engine with raw grep as fallback.
 **Alternatives considered**: Apple SearchKit (complex C API), in-memory search (too slow for 1.3GB).

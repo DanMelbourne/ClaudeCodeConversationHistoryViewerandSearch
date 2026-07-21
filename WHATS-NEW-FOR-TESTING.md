@@ -1,5 +1,26 @@
 # What's New for Testing
 
+## Build distribution pipeline — 2026-07-21
+
+- [ ] With a Developer ID certificate and a valid `notarytool` profile, run `./dist.sh` and open the generated DMG; drag the app to Applications and launch it.
+- [ ] For a local-only package, run `SKIP_NOTARIZE=1 ./dist.sh`; confirm it builds a signed DMG, refreshes `/Applications/Claude Code Companion.app`, and clearly reports that notarization was skipped.
+
+## Build 5 — 2026-07-21
+
+### Sidebar project actions
+- [ ] Right-click a project title in the left sidebar and choose “Reveal in Finder” — Finder selects that project’s conversation-history folder.
+- [ ] Right-click the empty space within a selected project row as well as its title — the same menu appears across the whole native list-row hit area.
+- [ ] With a project selected, choose File → “Reveal Selected Project in Finder” (or press Command-Shift-R) — Finder selects the same folder. Confirm the menu item is disabled when no project is selected.
+- [ ] Choose File → “Export Project Conversations” → “Save Consolidated History…” — the same save panel and export behavior as the sidebar menu appears. Confirm it is disabled until a project is selected.
+- [ ] Select a project normally after opening its context menu — project/session navigation still works.
+
+### Selected-project export
+- [ ] Select a project, open the “Export Project Conversations” menu in the sidebar, and choose “Save Consolidated History…”. The standard save panel opens above the app with a `.txt` filename prefilled.
+- [ ] Choose a destination — one text file is created, containing only the selected project's readable conversations from oldest to newest; the most recent interaction is at the end.
+- [ ] Confirm that user and Claude messages appear, while system messages and internal queue events do not.
+- [ ] After export, confirm the completion sheet reports the number of conversations and chat messages written; choose “Show in Finder” to open the exact exported file.
+- [ ] Export over an existing destination and cancel the save panel — the existing file is unchanged.
+
 ## Build 4 — 2026-06-20
 
 ### Search scope (the reported bug)

@@ -1,5 +1,10 @@
 # Infrastructure
 
+## Conversation export
+
+Selected-project exports are written as UTF-8 plain-text files through the macOS save panel. They include only the user and assistant records shown by the interactive chat, stream each JSONL file in 256 KB chunks, and atomically replace an existing destination only after a successful write.
+The completion sheet reports the exact conversation and message counts, and can reveal the exported file in Finder.
+
 ## Dependencies
 
 None. The app uses only macOS system frameworks:
@@ -38,6 +43,7 @@ No API tokens or external services. All data is local.
 - Minimum deployment: macOS 14.0
 - Non-sandboxed (requires access to `~/.claude/projects/`)
 - Hardened runtime enabled
+- `./dist.sh` archives, Developer ID-signs, notarizes, staples, packages `dist/ClaudeCodeCompanion-<version>.dmg`, and refreshes `/Applications/Claude Code Companion.app`. Set `SKIP_INSTALL=1` for packaging-only CI jobs. The identity can be supplied with `SIGNING_IDENTITY`; the notarization keychain profile defaults to `claude-code-companion-notarize`.
 
 ## GitHub
 

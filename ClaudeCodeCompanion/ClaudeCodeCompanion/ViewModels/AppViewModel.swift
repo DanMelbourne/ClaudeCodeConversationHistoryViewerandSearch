@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import Observation
 
@@ -47,6 +48,7 @@ final class AppViewModel {
     var messages: [ParsedMessage] = []
     var isLoadingSessions: Bool = false
     var isLoadingMessages: Bool = false
+    var exportErrorMessage: String?
 
     // MARK: - Search
 
@@ -349,6 +351,73 @@ final class AppViewModel {
                 self.messages = parsed
                 self.isLoadingMessages = false
             }
+        }
+    }
+
+    // MARK: - Conversation Export
+
+    @MainActor
+    func presentSelectedProjectExportSavePanel() {
+        guard let project = selectedProject else { return }
+
+        let panel = NSSavePanel()
+        panel.title = "Export Project Conversations"
+        panel.nameFieldStringValue = "\(project.displayName) Conversation History.txt"
+        panel.allowedContentTypes = [.plainText]
+        panel.canCreateDirectories = true
+        panel.isExtensionHidden = false
+
+        let complete: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard response == .OK, let destination = panel.url else { return }
+            self?.exportProjectConversations(for: project, to: destination)
+        }
+
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            panel.beginSheetModal(for: window, completionHandler: complete)
+        } else {
+            complete(panel.runModal())
+        }
+    }
+
+    @MainActor
+    func exportProjectConversations(for project: Project, to destination: URL) {
+        Task.detached(priority: .userInitiated) { [weak self] in
+            do {
+                let result = try ConversationExportService.exportProjectConversations(
+                    from: project,
+                    to: destination
+                )
+                await MainActor.run { [weak self] in
+                    self?.presentExportCompleteAlert(result: result, destination: destination)
+                }
+            } catch {
+                await MainActor.run {
+                    self?.exportErrorMessage = "The history could not be exported. Choose another location and try again."
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func presentExportCompleteAlert(
+        result: ConversationExportService.ExportResult,
+        destination: URL
+    ) {
+        let alert = NSAlert()
+        alert.messageText = "Export Complete"
+        alert.informativeText = "Exported \(result.messageCount) chat messages from \(result.conversationCount) conversations to \(destination.lastPathComponent)."
+        alert.addButton(withTitle: "Show in Finder")
+        alert.addButton(withTitle: "OK")
+
+        let complete: (NSApplication.ModalResponse) -> Void = { response in
+            if response == .alertFirstButtonReturn {
+                NSWorkspace.shared.activateFileViewerSelecting([destination])
+            }
+        }
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            alert.beginSheetModal(for: window, completionHandler: complete)
+        } else {
+            complete(alert.runModal())
         }
     }
 

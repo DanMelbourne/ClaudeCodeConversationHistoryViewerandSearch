@@ -3,6 +3,9 @@
 ## Current Sprint — v1.0.0
 
 ### Done
+- [x] Add Developer ID signing, notarization, and DMG distribution pipeline
+- [x] Reveal a project’s conversation-history folder in Finder from the sidebar
+- [x] Export the selected project's conversation-history files into one plain-text file
 - [x] Write design spec
 - [x] Create GitHub repo
 - [x] Scaffold Xcode project structure
@@ -27,7 +30,6 @@
 - [ ] Add keyboard shortcuts (Cmd+G, Cmd+Shift+G for search navigation)
 - [ ] Test CLAUDE.md editor auto-save
 - [ ] Add unit tests for JSONLParser and DatabaseManager
-- [ ] Build distribution pipeline (build.sh, dist.sh)
 - [ ] Set up auto-update via Sparkle
 
 ## Future / v1.1
