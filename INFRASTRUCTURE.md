@@ -21,7 +21,7 @@ None. The app uses only macOS system frameworks:
 | `JSONLParser` | Streaming JSONL parser with 64KB buffered reads |
 | `SearchEngine` | Coordinates FTS5 and raw grep search |
 | `ConversationStore` | Bridges DatabaseManager + JSONLParser for indexing |
-| `FileWatcher` | FSEvents-based watcher for live reindexing |
+| `FileWatcher` | Recursive FSEvents watcher; coalesces source writes before modification-date-aware reindexing |
 
 ## Data Locations
 
@@ -31,6 +31,10 @@ None. The app uses only macOS system frameworks:
 | `~/Library/Application Support/ClaudeCodeCompanion/index.db` | FTS5 search index (can be deleted safely) |
 | `~/.claude/CLAUDE.md` | Global CLAUDE.md (read/write by editor) |
 | `<project-dir>/CLAUDE.md` | Per-project CLAUDE.md files (read/write by editor) |
+
+## Future history sources
+
+The next adapters should normalize all sources into the existing local SQLite model and label each session with its source. The verified candidates are Codex CLI (`~/.codex/sessions/**/rollout-*.jsonl`), Cursor agent transcripts (`~/.cursor/projects/*/agent-transcripts/*/*.jsonl`), and OpenCode's read-only `opencode.db`. Append-only JSONL needs a persisted byte cursor and archived-source state; a live SQLite source needs a read-only watermark cursor with a stable row-ID tie-break.
 
 ## Configuration
 

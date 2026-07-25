@@ -1,5 +1,10 @@
 # What's New
 
+## July 25, 2026
+
+- New conversations appear in search automatically, even while Claude Code is still working.
+- Old conversations remain useful when their original transcript has been cleaned up: Companion explains what happened and can show its local cached copy.
+
 - Install Claude Code Companion from a signed, notarized disk image.
 
 - Jump from any project to its conversation-history folder in Finder.

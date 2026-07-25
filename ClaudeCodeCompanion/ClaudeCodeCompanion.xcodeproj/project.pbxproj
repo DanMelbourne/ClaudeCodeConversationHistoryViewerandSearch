@@ -31,6 +31,9 @@
 		E10000010000000000000031 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = E20000010000000000000031; };
 		E10000010000000000000040 /* ConversationExportServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E20000010000000000000040; };
 		E10000010000000000000041 /* ConversationExportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E20000010000000000000042; };
+		E10000010000000000000042 /* AppViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E20000010000000000000043; };
+		E10000010000000000000043 /* FileWatcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E20000010000000000000044; };
+		E10000010000000000000044 /* CrashReporterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E20000010000000000000045; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -61,6 +64,9 @@
 		E20000010000000000000040 /* ConversationExportServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationExportServiceTests.swift; sourceTree = "<group>"; };
 		E20000010000000000000041 /* ClaudeCodeCompanionTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ClaudeCodeCompanionTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E20000010000000000000042 /* ConversationExportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationExportService.swift; sourceTree = "<group>"; };
+		E20000010000000000000043 /* AppViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppViewModelTests.swift; sourceTree = "<group>"; };
+		E20000010000000000000044 /* FileWatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileWatcherTests.swift; sourceTree = "<group>"; };
+		E20000010000000000000045 /* CrashReporterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashReporterTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -103,6 +109,9 @@
 			isa = PBXGroup;
 			children = (
 				E20000010000000000000040 /* ConversationExportServiceTests.swift */,
+				E20000010000000000000043 /* AppViewModelTests.swift */,
+				E20000010000000000000044 /* FileWatcherTests.swift */,
+				E20000010000000000000045 /* CrashReporterTests.swift */,
 			);
 			path = ClaudeCodeCompanionTests;
 			sourceTree = "<group>";
@@ -361,6 +370,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				E10000010000000000000040 /* ConversationExportServiceTests.swift in Sources */,
+				E10000010000000000000042 /* AppViewModelTests.swift in Sources */,
+				E10000010000000000000043 /* FileWatcherTests.swift in Sources */,
+				E10000010000000000000044 /* CrashReporterTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

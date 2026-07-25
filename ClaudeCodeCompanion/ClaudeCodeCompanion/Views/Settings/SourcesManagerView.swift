@@ -126,12 +126,12 @@ struct SourcesManagerView: View {
         panel.allowsMultipleSelection = false
         panel.canCreateDirectories = false
         panel.showsHiddenFiles = true
-        panel.level = .modalPanel
-
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-
-        let name = suggestName(for: url)
-        appViewModel.addSource(name: name, path: url.path)
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
+        panel.beginSheetModal(for: window) { response in
+            guard response == .OK, let url = panel.url else { return }
+            let name = suggestName(for: url)
+            appViewModel.addSource(name: name, path: url.path)
+        }
     }
 
     private func suggestName(for url: URL) -> String {

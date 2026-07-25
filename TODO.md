@@ -3,6 +3,9 @@
 ## Current Sprint — v1.0.0
 
 ### Done
+- [x] Keep the conversation index current with filesystem watchers
+- [x] Offer an explicitly labelled cached reconstruction when a searched JSONL transcript is missing
+- [x] Explain when a search hit's original JSONL transcript is no longer available on disk
 - [x] Add Developer ID signing, notarization, and DMG distribution pipeline
 - [x] Reveal a project’s conversation-history folder in Finder from the sidebar
 - [x] Export the selected project's conversation-history files into one plain-text file
@@ -33,6 +36,9 @@
 - [ ] Set up auto-update via Sparkle
 
 ## Future / v1.1
+- [ ] Make transcript indexing source-agnostic, then add Codex CLI and Cursor agent-transcript adapters
+- [ ] Store append-only byte cursors and archived-source status so large, deleted transcripts remain searchable without full reparses
+- [ ] Add an OpenCode read-only SQLite adapter; investigate the mapped Copilot CLI format after the file-based adapters ship
 - [ ] Conversation statistics/analytics
 - [ ] Export conversations to markdown
 - [ ] Semantic search

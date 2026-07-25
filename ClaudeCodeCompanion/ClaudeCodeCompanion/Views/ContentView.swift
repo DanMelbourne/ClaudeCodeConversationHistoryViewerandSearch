@@ -15,6 +15,28 @@ struct ContentView: View {
         } detail: {
             DetailView()
         }
+        .alert(
+            "Conversation Unavailable",
+            isPresented: Binding(
+                get: { appViewModel.navigationErrorMessage != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        appViewModel.navigationErrorMessage = nil
+                    }
+                }
+            )
+        ) {
+            if appViewModel.unavailableSearchResult != nil {
+                Button("View Cached Copy") {
+                    appViewModel.viewCachedConversation()
+                }
+            }
+            Button("OK", role: .cancel) {
+                appViewModel.navigationErrorMessage = nil
+            }
+        } message: {
+            Text(appViewModel.navigationErrorMessage ?? "")
+        }
         .toolbar(id: "mainToolbar") {
             // Search field
             ToolbarItem(id: "search", placement: .automatic) {

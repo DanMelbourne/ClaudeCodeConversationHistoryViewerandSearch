@@ -27,6 +27,17 @@ struct ConversationView: View {
     private var conversationContent: some View {
         ScrollViewReader { proxy in
             VStack(spacing: 0) {
+                if let notice = appViewModel.cachedConversationNotice {
+                    Label(notice, systemImage: "internaldrive")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(.quaternary)
+                        .help("This reconstruction comes from the local SQLite search cache, not the original JSONL file.")
+                }
+
                 // Local find bar
                 if appViewModel.showConversationSearch {
                     localSearchBar(proxy: proxy)

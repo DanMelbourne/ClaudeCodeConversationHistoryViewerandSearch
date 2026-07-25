@@ -49,6 +49,10 @@ final class AppViewModel {
     var isLoadingSessions: Bool = false
     var isLoadingMessages: Bool = false
     var exportErrorMessage: String?
+    var navigationErrorMessage: String?
+    var unavailableSearchResult: SearchResult?
+    var cachedConversationSessionID: String?
+    var cachedConversationNotice: String?
 
     // MARK: - Search
 
@@ -81,6 +85,9 @@ final class AppViewModel {
 
     @ObservationIgnored private var searchDebounceTask: Task<Void, Never>?
     @ObservationIgnored private var navigateTask: Task<Void, Never>?
+    @ObservationIgnored private var fileWatchers: [FileWatcher] = []
+    @ObservationIgnored private var watcherRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var watcherRefreshGeneration = UUID()
 
     /// When true, the sidebar's onChange(of: selectedProject) should NOT reset
     /// the session or reload sessions — navigateToSearchResult handles it.
@@ -136,6 +143,7 @@ final class AppViewModel {
         isIndexing = false
         indexingStatus = ""
         loadProjects() // reload to include external source projects
+        configureFileWatchers()
     }
 
     // MARK: - Project Loading
@@ -335,6 +343,15 @@ final class AppViewModel {
         loadMessagesTask?.cancel()
         navigateTask?.cancel()
 
+        guard session.id != cachedConversationSessionID else {
+            isLoadingMessages = false
+            detailDestination = .conversation
+            return
+        }
+
+        cachedConversationSessionID = nil
+        cachedConversationNotice = nil
+
         guard FileManager.default.fileExists(atPath: session.filePath.path) else {
             messages = []
             return
@@ -372,11 +389,11 @@ final class AppViewModel {
             self?.exportProjectConversations(for: project, to: destination)
         }
 
-        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
-            panel.beginSheetModal(for: window, completionHandler: complete)
-        } else {
-            complete(panel.runModal())
+        guard let window = presentationWindow else {
+            exportErrorMessage = "Open the main window, then choose Export Project Conversations again."
+            return
         }
+        panel.beginSheetModal(for: window, completionHandler: complete)
     }
 
     @MainActor
@@ -414,11 +431,8 @@ final class AppViewModel {
                 NSWorkspace.shared.activateFileViewerSelecting([destination])
             }
         }
-        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
-            alert.beginSheetModal(for: window, completionHandler: complete)
-        } else {
-            complete(alert.runModal())
-        }
+        guard let window = presentationWindow else { return }
+        alert.beginSheetModal(for: window, completionHandler: complete)
     }
 
     /// Stream-parse a JSONL file into ParsedMessages without loading the entire file into memory.
@@ -591,10 +605,12 @@ final class AppViewModel {
 
         // Prevent the sidebar's onChange from resetting session/destination
         isNavigatingFromSearch = true
-        selectedProject = project
-        detailDestination = .conversation
         isLoadingSessions = true
         isLoadingMessages = true
+        navigationErrorMessage = nil
+        unavailableSearchResult = nil
+        cachedConversationSessionID = nil
+        cachedConversationNotice = nil
 
         let projectId = project.id
         let allPaths = project.allPaths
@@ -647,16 +663,26 @@ final class AppViewModel {
                 }
             }
 
-            guard let session else { return }
+            guard let session else {
+                await MainActor.run { [weak self] in
+                    guard let self, !Task.isCancelled else { return }
+                    self.navigationErrorMessage = "The original conversation file is no longer available on disk."
+                    self.unavailableSearchResult = result
+                    self.detailDestination = .searchResults
+                }
+                return
+            }
             guard !Task.isCancelled else { return }
             let parsed = Self.parseMessagesStreaming(from: session.filePath)
             guard !Task.isCancelled else { return }
 
             await MainActor.run { [weak self] in
                 guard let self, !Task.isCancelled else { return }
+                self.selectedProject = project
                 self.sessions = loadedSessions
                 self.selectedSession = session
                 self.messages = parsed
+                self.detailDestination = .conversation
             }
 
             // Small delay for scroll view to render
@@ -666,6 +692,90 @@ final class AppViewModel {
             }
         }
         navigateTask = task
+    }
+
+    @MainActor
+    func viewCachedConversation() {
+        guard let result = unavailableSearchResult,
+              let project = projects.first(where: { $0.ownsPath(result.projectPath) }),
+              let store else {
+            navigationErrorMessage = "The cached copy is no longer available."
+            return
+        }
+
+        navigationErrorMessage = nil
+        isNavigatingFromSearch = true
+        isLoadingSessions = true
+        isLoadingMessages = true
+
+        let cachedSession = ConversationSession(
+            id: result.sessionId,
+            projectId: project.id,
+            filePath: project.path.appendingPathComponent("\(result.sessionId).jsonl"),
+            firstUserMessage: "Cached copy — original JSONL unavailable",
+            timestamp: result.timestamp,
+            messageCount: 0,
+            isSubagent: false
+        )
+        let projectId = project.id
+        let allPaths = project.allPaths
+
+        Task { @MainActor [weak self] in
+            defer {
+                self?.isNavigatingFromSearch = false
+                self?.isLoadingSessions = false
+                self?.isLoadingMessages = false
+            }
+
+            do {
+                let cachedMessages = try await store.loadConversation(for: cachedSession)
+                let reconstructedMessages = Self.cachedParsedMessages(from: cachedMessages)
+                guard !reconstructedMessages.isEmpty else {
+                    self?.navigationErrorMessage = "The cached copy contains no user or Claude messages."
+                    self?.detailDestination = .searchResults
+                    return
+                }
+
+                let diskSessions = await Task.detached(priority: .userInitiated) {
+                    Self.enumerateSessions(projectId: projectId, paths: allPaths)
+                }.value
+                guard let self else { return }
+
+                let recoveredSession = ConversationSession(
+                    id: cachedSession.id,
+                    projectId: cachedSession.projectId,
+                    filePath: cachedSession.filePath,
+                    firstUserMessage: cachedSession.firstUserMessage,
+                    timestamp: cachedSession.timestamp,
+                    messageCount: reconstructedMessages.count,
+                    isSubagent: cachedSession.isSubagent
+                )
+                self.selectedProject = project
+                self.sessions = [recoveredSession] + diskSessions
+                self.messages = reconstructedMessages
+                self.cachedConversationSessionID = recoveredSession.id
+                self.cachedConversationNotice = "Cached copy — original JSONL unavailable"
+                self.selectedSession = recoveredSession
+                self.unavailableSearchResult = nil
+                self.detailDestination = .conversation
+            } catch {
+                self?.navigationErrorMessage = "The cached copy could not be loaded. Try searching again."
+                self?.detailDestination = .searchResults
+            }
+        }
+    }
+
+    nonisolated static func cachedParsedMessages(from messages: [ConversationMessage]) -> [ParsedMessage] {
+        messages.compactMap { message in
+            guard message.type == .user || message.type == .assistant else { return nil }
+            return ParsedMessage(
+                id: message.id,
+                type: message.type,
+                timestamp: message.timestamp,
+                blocks: JSONLParser.parseContentBlocks(from: message.contentRaw),
+                rawJSON: message.contentRaw
+            )
+        }
     }
 
 
@@ -751,6 +861,7 @@ final class AppViewModel {
         Task {
             await reindexSource(source)
         }
+        configureFileWatchers()
     }
 
     @MainActor
@@ -758,6 +869,7 @@ final class AppViewModel {
         externalSources.removeAll { $0.id == id }
         ConversationSource.saveAll(externalSources)
         loadProjects()
+        configureFileWatchers()
     }
 
     @MainActor
@@ -766,6 +878,7 @@ final class AppViewModel {
         externalSources[idx].isEnabled.toggle()
         ConversationSource.saveAll(externalSources)
         loadProjects()
+        configureFileWatchers()
     }
 
     @MainActor
@@ -801,7 +914,86 @@ final class AppViewModel {
         }
     }
 
+    // MARK: - Live index updates
+
+    /// Directories that should keep the local cache current. Kept separate for
+    /// deterministic tests and to ensure duplicate source roots have one watcher.
+    nonisolated static func watcherPaths(
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        externalSources: [ConversationSource]
+    ) -> [URL] {
+        let localProjects = homeDirectory.appendingPathComponent(".claude/projects", isDirectory: true)
+        let paths = [localProjects] + externalSources
+            .filter { $0.isEnabled && $0.isAccessible }
+            .map { URL(fileURLWithPath: $0.path, isDirectory: true) }
+
+        var seen = Set<String>()
+        return paths.filter { seen.insert($0.standardizedFileURL.path).inserted }
+    }
+
+    @MainActor
+    private func configureFileWatchers() {
+        fileWatchers.forEach { $0.stop() }
+        fileWatchers = Self.watcherPaths(externalSources: externalSources).map { path in
+            FileWatcher(path: path) { [weak self] in
+                Task { @MainActor in
+                    self?.scheduleWatchedIndexRefresh()
+                }
+            }
+        }
+        fileWatchers.forEach { $0.start() }
+    }
+
+    @MainActor
+    private func scheduleWatchedIndexRefresh() {
+        watcherRefreshTask?.cancel()
+        let generation = UUID()
+        watcherRefreshGeneration = generation
+
+        watcherRefreshTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled,
+                  let self,
+                  self.watcherRefreshGeneration == generation else { return }
+
+            // Do not compete with an explicit or startup index. A later
+            // filesystem event will schedule the same mod-date-aware pass.
+            guard !self.isIndexing else { return }
+
+            self.isIndexing = true
+            self.indexingStatus = "Updating index…"
+            defer {
+                self.isIndexing = false
+                self.indexingStatus = ""
+                if self.watcherRefreshGeneration == generation {
+                    self.watcherRefreshTask = nil
+                }
+            }
+
+            guard let store = self.store else { return }
+            do {
+                try await store.performFullIndex()
+                for source in self.externalSources where source.isEnabled && source.isAccessible {
+                    try await store.indexDirectory(URL(fileURLWithPath: source.path))
+                    if let index = self.externalSources.firstIndex(where: { $0.id == source.id }) {
+                        self.externalSources[index].lastIndexed = Date()
+                    }
+                }
+                ConversationSource.saveAll(self.externalSources)
+                self.loadProjects()
+            } catch {
+                self.indexingStatus = "Index update failed"
+            }
+        }
+    }
+
     // MARK: - Private Helpers
+
+    private var presentationWindow: NSWindow? {
+        NSApp.keyWindow
+            ?? NSApp.mainWindow
+            ?? NSApp.windows.first(where: { $0.isVisible && $0.canBecomeKey })
+    }
 
     private func projectDisplayName(from folderName: String) -> String {
         return ConversationStore.deriveProjectName(from: folderName)

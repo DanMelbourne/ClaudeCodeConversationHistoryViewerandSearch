@@ -1,5 +1,24 @@
 # What's New for Testing
 
+## Live indexing and Sentry hang hygiene — 2026-07-25
+
+- [x] Automated: filesystem writes in nested project directories notify the recursive watcher; enabled accessible external roots get one watcher, while disabled and duplicate paths do not.
+- [x] Automated: the off-main indexing collector finds nested JSONL transcripts and excludes unrelated files.
+- [x] Automated: Sentry reporting is suppressed only when XCTest process markers are present.
+- [ ] Open the Sources sheet and choose Add Source. Confirm the folder picker appears as a sheet above the app and remains responsive while it is open. Export a project and confirm both save and completion panels are sheets as well.
+- [ ] Launch the app, then create or append a JSONL file under `~/.claude/projects/` (including a nested `subagents` folder). After roughly one second, search its unique text without choosing Reindex All; it should appear.
+- [ ] Add an enabled external source, append a JSONL transcript beneath it, and confirm it becomes searchable. Disable the source, append again, and confirm the app does not index it until it is re-enabled.
+
+## Cached reconstruction for missing transcripts — 2026-07-25
+
+- [x] Automated: cached reconstruction retains only user and Claude records; it preserves their order, timestamps, text, and raw JSON payload.
+- [ ] In the app, open a search result whose original JSONL transcript is missing and choose “View Cached Copy.” Confirm the recovered conversation appears with the “Cached copy — original JSONL unavailable” banner, includes user and Claude messages, and does not include internal queue events.
+
+## Missing search-result transcript — 2026-07-25
+
+- [x] Automated: navigating from a cached search hit whose JSONL session is absent reports “The original conversation file is no longer available on disk.” and leaves the user on search results.
+- [ ] In the app, open a search result whose original JSONL transcript has been removed. Confirm the “Conversation Unavailable” alert appears, then dismiss it and verify the search results remain visible rather than two empty columns.
+
 ## Build distribution pipeline — 2026-07-21
 
 - [ ] With a Developer ID certificate and a valid `notarytool` profile, run `./dist.sh` and open the generated DMG; drag the app to Applications and launch it.

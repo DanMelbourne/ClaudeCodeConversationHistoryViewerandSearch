@@ -1,5 +1,25 @@
 # Design Decisions
 
+## 2026-07-25: Live incremental indexing with recursive source watchers
+**Decision**: Keep one recursive filesystem watcher for the local Claude projects root and each enabled, accessible external source. Coalesce events for one second, then run the existing modification-date-aware indexing pass. Restart the watcher set whenever external-source configuration changes.
+**Rationale**: Conversation JSONL files are written continuously and can live in nested session folders. A recursive watcher keeps search current without repeatedly reparsing unchanged transcripts, while one shared refresh prevents bursts of filesystem events from starting overlapping scans.
+
+## 2026-07-25: Do not initialise Sentry from XCTest
+**Decision**: Detect the XCTest process markers before configuring Sentry and leave reporting disabled there. Keep reportable work off the main actor and present file panels/alerts only as parented sheets, never through a synchronous modal loop.
+**Rationale**: App-hang monitoring measures main-thread stalls. XCTest drives the whole SwiftUI application and can intentionally block or lay out large test views, which created debug hang reports with no customer-facing app failure. Sentry also captured an intentional production `NSAlert.runModal` loop; sheets avoid that false-positive path and stay above their parent. Production and normal debug launches retain Sentry reporting.
+
+## 2026-07-25: Multi-harness transcript adapters will share a local, source-labelled index
+**Decision**: Keep Companion local-only and introduce source adapters before adding Codex CLI, Cursor, OpenCode, or Copilot histories. Each adapter will normalize source-specific records into the current session/message model, retain source provenance, and use the source's safe incremental cursor: byte offset for append-only JSONL, watermark plus row-ID tie-break for a live SQLite database.
+**Rationale**: Rewound demonstrates that Claude Code, Codex CLI, and OpenCode have materially different persistence formats. On this Mac, Cursor has durable agent transcripts at `~/.cursor/projects/*/agent-transcripts/*/*.jsonl` with user/assistant text blocks; its lightweight `~/.cursor/chats` prompt history is not a full conversation source. A source-labelled adapter boundary prevents one parser's assumptions from corrupting another source and preserves a clear recovery path when transcripts disappear.
+
+## 2026-07-25: Recover missing source transcripts from an explicitly labelled SQLite cache
+**Decision**: The unavailable-conversation alert offers “View Cached Copy” when a search result's source JSONL cannot be found. The reconstruction uses only indexed user and assistant records, preserves their indexed order and raw payload, and displays a persistent banner stating that it is a cached copy because the original JSONL is missing.
+**Rationale**: The local index has enough parsed content to recover useful context, but it is not the canonical source and may omit records that were never indexed. Explicit recovery gives the user access without misrepresenting cache data as an intact transcript.
+
+## 2026-07-25: Explain missing source transcripts during search navigation
+**Decision**: When a search result's JSONL transcript is no longer present, keep the user in the search results and show a concise alert that the original conversation is no longer available on disk. Do not silently fall through to an empty session list, and do not display SQLite-indexed text as if it were the original transcript.
+**Rationale**: Search data can outlive files because the FTS index is local cache state. Clear provenance matters: indexed snippets are useful for search, but they may omit structure and cannot establish that the original conversation is intact. A future recovery view can explicitly label any SQLite-only content as cached.
+
 ## 2026-07-21: Developer ID DMG distribution pipeline
 **Decision**: Add a project-root `dist.sh` modelled on ScreenshotTray’s release gates: require a Developer ID identity, archive the Xcode app, re-sign embedded frameworks inside-out with hardened runtime, verify the signature, optionally notarize and staple, then build a compressed DMG containing the app and an Applications alias.
 **Rationale**: This app needs the same portable, Gatekeeper-compatible distribution path, but it has no iCloud entitlement, Sparkle framework, helper executable, or custom disk-image assets. Keeping only the applicable stages avoids copying ScreenshotTray-specific release complexity while retaining its security-critical checks.

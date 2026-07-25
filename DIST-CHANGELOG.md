@@ -1,5 +1,10 @@
 # Distribution Changelog
 
+## Build 6 — 2026-07-25
+
+- Conversation search now notices new and updated chats automatically.
+- If an older transcript has been removed, you can view the clearly marked cached copy instead of landing on an empty screen.
+
 ## Build 5
 
 - Added a signed, notarized installer disk image for Claude Code Companion.

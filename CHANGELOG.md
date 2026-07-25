@@ -1,5 +1,11 @@
 # Changelog
 
+## Build 6 — 2026-07-25
+
+- Keeps the search index current while Claude Code writes conversations, including nested subagent transcripts and enabled external sources.
+- Explains when the original conversation transcript was deleted and offers an explicitly labelled cached reconstruction from the local search index.
+- Moves transcript discovery and file metadata checks off the main thread, stops synchronous modal loops, and keeps XCTest-only layout work out of Sentry hang reports.
+
 ## Build 5 — 2026-07-21
 
 - Added a Developer ID-signed, notarized DMG distribution pipeline.

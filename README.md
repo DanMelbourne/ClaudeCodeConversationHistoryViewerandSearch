@@ -13,6 +13,8 @@ A native macOS app for browsing, searching, and managing Claude Code conversatio
 - **Index and Raw modes** — Toggle between parsed view and raw JSON
 - **Finder reveal** — Open a project’s conversation-history folder directly from the sidebar
 - **Project export** — Save the selected project's visible user and Claude chat as one plain-text file
+- **Live updates** — New and changed Claude Code transcripts, including nested subagent chats and enabled external sources, are indexed automatically
+- **Safe recovery** — If a searched transcript was deleted, Companion says so and can show its clearly labelled local cached reconstruction
 
 ## Requirements
 
@@ -33,7 +35,7 @@ The app reads JSONL transcript files from `~/.claude/projects/`. It does not mod
 ~/Library/Application Support/ClaudeCodeCompanion/index.db
 ```
 
-This file can be safely deleted — the app will rebuild it on next launch.
+This file can be safely deleted — the app will rebuild it on next launch. It is also the local cache used for an explicitly labelled recovery view when Claude Code has deleted an original transcript.
 
 ## Uninstalling
 

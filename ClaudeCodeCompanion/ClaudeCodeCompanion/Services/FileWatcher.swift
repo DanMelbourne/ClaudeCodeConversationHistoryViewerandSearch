@@ -1,13 +1,19 @@
+import CoreServices
 import Foundation
 
-class FileWatcher {
-    private var source: DispatchSourceFileSystemObject?
-    private var fileDescriptor: Int32 = -1
+/// Recursively observes a conversation-source directory and coalesces file activity.
+///
+/// Claude Code creates and appends transcripts inside project and subagent
+/// directories. A vnode source attached only to the top-level directory misses
+/// writes below an existing child directory, so this uses FSEvents instead.
+final class FileWatcher {
+    private var eventStream: FSEventStreamRef?
     private let path: URL
     private let onChange: () -> Void
     private let debounceInterval: TimeInterval = 1.0
     private var debounceWorkItem: DispatchWorkItem?
     private let debounceQueue = DispatchQueue(label: "com.claudecodecompanion.filewatcher.debounce")
+    private let eventQueue = DispatchQueue(label: "com.claudecodecompanion.filewatcher.events", qos: .utility)
 
     init(path: URL, onChange: @escaping () -> Void) {
         self.path = path
@@ -17,43 +23,49 @@ class FileWatcher {
     func start() {
         stop()
 
-        // Ensure the directory exists
-        let fm = FileManager.default
-        guard fm.fileExists(atPath: path.path) else { return }
+        guard FileManager.default.fileExists(atPath: path.path) else { return }
 
-        fileDescriptor = open(path.path, O_EVTONLY)
-        guard fileDescriptor >= 0 else { return }
-
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fileDescriptor,
-            eventMask: [.write, .rename, .delete, .extend],
-            queue: DispatchQueue.global(qos: .utility)
+        var context = FSEventStreamContext(
+            version: 0,
+            info: Unmanaged.passUnretained(self).toOpaque(),
+            retain: nil,
+            release: nil,
+            copyDescription: nil
         )
-
-        source.setEventHandler { [weak self] in
-            self?.handleChange()
+        let flags = FSEventStreamCreateFlags(
+            kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagNoDefer
+        )
+        guard let stream = FSEventStreamCreate(
+            kCFAllocatorDefault,
+            Self.handleEvents,
+            &context,
+            [path.path] as CFArray,
+            FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
+            0,
+            flags
+        ) else {
+            return
         }
 
-        source.setCancelHandler { [weak self] in
-            guard let self, self.fileDescriptor >= 0 else { return }
-            close(self.fileDescriptor)
-            self.fileDescriptor = -1
+        eventStream = stream
+        FSEventStreamSetDispatchQueue(stream, eventQueue)
+        guard FSEventStreamStart(stream) else {
+            stop()
+            return
         }
-
-        self.source = source
-        source.resume()
     }
 
     func stop() {
-        debounceWorkItem?.cancel()
-        debounceWorkItem = nil
+        debounceQueue.sync {
+            debounceWorkItem?.cancel()
+            debounceWorkItem = nil
+        }
 
-        if let source {
-            source.cancel()
-            self.source = nil
-        } else if fileDescriptor >= 0 {
-            close(fileDescriptor)
-            fileDescriptor = -1
+        if let eventStream {
+            FSEventStreamStop(eventStream)
+            FSEventStreamInvalidate(eventStream)
+            FSEventStreamRelease(eventStream)
+            self.eventStream = nil
         }
     }
 
@@ -63,13 +75,21 @@ class FileWatcher {
 
     // MARK: - Private
 
-    private func handleChange() {
-        debounceWorkItem?.cancel()
+    private static let handleEvents: FSEventStreamCallback = { _, info, _, _, _, _ in
+        guard let info else { return }
+        Unmanaged<FileWatcher>.fromOpaque(info).takeUnretainedValue().scheduleChange()
+    }
 
-        let workItem = DispatchWorkItem { [weak self] in
-            self?.onChange()
+    private func scheduleChange() {
+        debounceQueue.async { [weak self] in
+            guard let self else { return }
+            self.debounceWorkItem?.cancel()
+
+            let workItem = DispatchWorkItem { [weak self] in
+                self?.onChange()
+            }
+            self.debounceWorkItem = workItem
+            self.debounceQueue.asyncAfter(deadline: .now() + self.debounceInterval, execute: workItem)
         }
-        debounceWorkItem = workItem
-        debounceQueue.asyncAfter(deadline: .now() + debounceInterval, execute: workItem)
     }
 }

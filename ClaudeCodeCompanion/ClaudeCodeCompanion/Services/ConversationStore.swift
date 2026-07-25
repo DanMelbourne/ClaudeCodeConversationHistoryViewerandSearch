@@ -25,10 +25,10 @@ class ConversationStore {
         try await db.open()
         try await db.createSchema()
 
-        let fm = FileManager.default
-        guard fm.fileExists(atPath: claudeProjectsPath.path) else { return }
-
-        let jsonlFiles = collectJSONLFiles(under: claudeProjectsPath)
+        let projectsPath = claudeProjectsPath
+        let jsonlFiles = await Task.detached(priority: .utility) {
+            Self.collectJSONLFiles(under: projectsPath)
+        }.value
         indexingProgress = (0, jsonlFiles.count)
 
         for (index, file) in jsonlFiles.enumerated() {
@@ -42,11 +42,9 @@ class ConversationStore {
     // MARK: - Single file index
 
     func indexFile(at url: URL) async throws {
-        let fm = FileManager.default
-        guard fm.fileExists(atPath: url.path) else { return }
-
-        let attributes = try fm.attributesOfItem(atPath: url.path)
-        guard let modDate = attributes[.modificationDate] as? Date else { return }
+        guard let modDate = await Task.detached(priority: .utility, operation: {
+            Self.modificationDateIfRegularFile(at: url)
+        }).value else { return }
 
         let needsReindex = await db.needsReindex(path: url.path, modificationDate: modDate)
         guard needsReindex else { return }
@@ -70,13 +68,12 @@ class ConversationStore {
 
     /// Index all JSONL files under an arbitrary directory (e.g. a remote Mac's .claude/projects).
     func indexDirectory(_ directory: URL) async throws {
-        let fm = FileManager.default
-        guard fm.fileExists(atPath: directory.path) else { return }
-
         try await db.open()
         try await db.createSchema()
 
-        let jsonlFiles = collectJSONLFiles(under: directory)
+        let jsonlFiles = await Task.detached(priority: .utility) {
+            Self.collectJSONLFiles(under: directory)
+        }.value
         for file in jsonlFiles {
             try await indexFile(at: file)
         }
@@ -153,7 +150,7 @@ class ConversationStore {
     // MARK: - Private helpers
 
     /// Collect all .jsonl files recursively under a directory.
-    private func collectJSONLFiles(under directory: URL) -> [URL] {
+    nonisolated static func collectJSONLFiles(under directory: URL) -> [URL] {
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(
             at: directory,
@@ -172,6 +169,17 @@ class ConversationStore {
             }
         }
         return files
+    }
+
+    /// Runs in a detached task because file-attribute lookups over a network
+    /// source or thousands of sessions can block for long enough to trip the
+    /// app-hang watchdog.
+    private nonisolated static func modificationDateIfRegularFile(at url: URL) -> Date? {
+        guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey]),
+              values.isRegularFile == true else {
+            return nil
+        }
+        return values.contentModificationDate
     }
 
     /// Derive the project path from a JSONL file URL.
