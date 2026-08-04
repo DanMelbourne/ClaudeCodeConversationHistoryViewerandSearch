@@ -22,23 +22,65 @@ None. The app uses only macOS system frameworks:
 | `SearchEngine` | Coordinates FTS5 and raw grep search |
 | `ConversationStore` | Bridges DatabaseManager + JSONLParser for indexing |
 | `FileWatcher` | Recursive FSEvents watcher; coalesces source writes before modification-date-aware reindexing |
+| `CodexHistoryProvider` | Parses `~/.codex/sessions/**/rollout-*.jsonl`; caps at 64 MB / 20,000 messages per session |
+| `CursorHistoryProvider` | Read-only reader for Cursor's `state.vscdb` (`composerData:` / `bubbleId:` keys) |
+| `AgentMessageBuilder` | Transcodes other agents' records into the Claude-shaped record every renderer already reads |
+| `AgentKind` / `ProjectPathEncoder` | Agent identity, per-agent switches, and `cwd` → `-Users-dan-Code-Foo` project folder encoding |
 
 ## Data Locations
 
 | Path | Purpose |
 |------|---------|
-| `~/.claude/projects/` | Source conversation transcripts (read-only) |
+| `~/.claude/projects/` | Claude Code transcripts (read-only) |
+| `~/.codex/sessions/` | Codex rollout transcripts (read-only) |
+| `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb` | Cursor conversations (opened `mode=ro`, never written) |
 | `~/Library/Application Support/ClaudeCodeCompanion/index.db` | FTS5 search index (can be deleted safely) |
 | `~/.claude/CLAUDE.md` | Global CLAUDE.md (read/write by editor) |
 | `<project-dir>/CLAUDE.md` | Per-project CLAUDE.md files (read/write by editor) |
 
-## Future history sources
+## History sources
 
-The next adapters should normalize all sources into the existing local SQLite model and label each session with its source. The verified candidates are Codex CLI (`~/.codex/sessions/**/rollout-*.jsonl`), Cursor agent transcripts (`~/.cursor/projects/*/agent-transcripts/*/*.jsonl`), and OpenCode's read-only `opencode.db`. Append-only JSONL needs a persisted byte cursor and archived-source state; a live SQLite source needs a read-only watermark cursor with a stable row-ID tie-break.
+| Agent | Source | Incremental cursor |
+|-------|--------|--------------------|
+| Claude Code | `~/.claude/projects/**/*.jsonl` | file modification date in `indexed_files` |
+| Codex | `~/.codex/sessions/**/rollout-*.jsonl` | file modification date in `indexed_files` |
+| Cursor | `state.vscdb` `composerData:`/`bubbleId:` keys | `lastUpdatedAt` watermark, keyed `cursor://composer/<id>` |
+
+`messages.agent` and `indexed_files.agent` label every row; switching an agent off deletes its rows. Per-agent switches persist in `UserDefaults` under `agentEnabled.<agent>`.
+
+Codex rollouts are streamed in 2,000-message batches with semaphore backpressure, so a gigabyte-scale session is indexed in full without being held in memory; the transcript view separately windows to the first and last 2,000 messages.
+
+## Index storage policy
+
+`DatabaseManager.StoragePolicy` (version 2) governs what is stored per message:
+
+- `content_text` — always stored in full; this is what FTS5 indexes.
+- `content_raw` — stored only for `user`/`assistant` records and capped at 64 KB. It exists solely to reconstruct a cached copy when a transcript is deleted, and that view renders chat records only.
+
+Changing `StoragePolicy.version` migrates the existing index **in place** (blank unused raw payloads, truncate oversized ones, collapse duplicate `(session_id, uuid)` rows, VACUUM) and never rebuilds from source — rows for deleted transcripts are unrecoverable and are what the cached-copy view serves. Version is recorded in `index_meta`. The FTS update trigger is `AFTER UPDATE OF content_text`, so the migration does not touch the full-text index.
+
+Incremental indexing: `indexed_files.bytes_indexed` is a byte-offset cursor, so an appended transcript costs only its new bytes. `messages` has a unique `(session_id, uuid)` index and inserts use `INSERT OR IGNORE`, making a re-read of a partially-written final line idempotent. Records with no uuid derive one from `sessionId@byteOffset`.
+
+A full pass parses files in windows of `min(6, cores - 2)` (JSONLParser is `nonisolated` and stateless) and writes through the single DatabaseManager actor.
+
+SQLite settings: WAL, `synchronous=NORMAL`, 32 MB cache, `temp_store=MEMORY`, `mmap_size=1 GB`, `PRAGMA optimize` on close.
+
+Still unadopted: OpenCode's read-only `opencode.db`.
 
 ## Configuration
 
 No API tokens or external services. All data is local.
+
+## Build & versioning
+
+| Script | Purpose |
+|--------|---------|
+| `./build.sh` | Version from commit count → build → install to /Applications → stamp provenance → re-sign → verify. `--debug`, `--clean`, `--no-open`. |
+| `./scripts/verify-build-base.sh` | Ancestry guard: not behind `origin/main`, never moves the install backwards. Override: `CCC_ALLOW_STALE_BASE=1`. |
+| `./scripts/test_build_script.sh` | Guards the pipeline's disciplines. |
+| `./dist.sh` | Signed + notarized DMG, same version rule and stamps. |
+
+Bundle keys stamped at build time and read by `BuildInfo`: `CCCBuildDate`, `CCCBuildSourceBranch`, `CCCBuildSourceCommit`, `CCCBuildDirty`, `CCCBuildConfiguration`. `CFBundleVersion` = `git rev-list --count HEAD`; `CFBundleShortVersionString` = `MAJOR.MINOR.<count>` (bump MAJOR.MINOR by hand in `Resources/Info.plist`). Both are passed to `xcodebuild` as `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION`, which override the plist file under `GENERATE_INFOPLIST_FILE`.
 
 ## Build
 

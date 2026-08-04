@@ -1,5 +1,8 @@
 import Foundation
 
+/// Stateless parser. Every method is `nonisolated`, so transcripts parse in
+/// parallel across cores instead of queueing behind one another on the actor;
+/// only the database writes are serialised.
 actor JSONLParser {
 
     // MARK: - ISO8601 formatter
@@ -19,16 +22,39 @@ actor JSONLParser {
     // MARK: - Public API
 
     /// Parse a single JSONL file into messages using streaming line reading.
-    func parseFile(at url: URL, projectPath: String) throws -> [ConversationMessage] {
+    nonisolated func parseFile(at url: URL, projectPath: String) throws -> [ConversationMessage] {
+        try parseFile(at: url, projectPath: projectPath, fromByteOffset: 0).messages
+    }
+
+    /// The result of an incremental parse: the new records, and how far into the
+    /// file they were read from.
+    struct ParseResult {
+        let messages: [ConversationMessage]
+        /// Offset of the last complete line consumed — the resume point.
+        let bytesConsumed: Int
+    }
+
+    /// Parse from a byte offset, so an appended transcript only costs the new
+    /// bytes. Claude Code appends to the live session file continuously; before
+    /// this, every append re-parsed and re-indexed the whole session.
+    ///
+    /// Resuming is only valid at a line boundary, which is why the offset
+    /// returned is the end of the last *complete* line seen.
+    nonisolated func parseFile(at url: URL, projectPath: String, fromByteOffset offset: Int) throws -> ParseResult {
         let sessionId = Self.extractSessionId(from: url)
         guard let fileHandle = FileHandle(forReadingAtPath: url.path) else {
             throw ParserError.cannotOpenFile(url.path)
         }
         defer { fileHandle.closeFile() }
 
+        if offset > 0 {
+            try fileHandle.seek(toOffset: UInt64(offset))
+        }
+
         var messages: [ConversationMessage] = []
         let bufferSize = 64 * 1024
         var leftover = ""
+        var consumed = offset
 
         while true {
             guard let chunk = try? fileHandle.read(upToCount: bufferSize), !chunk.isEmpty else {
@@ -43,25 +69,32 @@ actor JSONLParser {
             leftover = lines.removeLast()
 
             for line in lines {
+                let lineOffset = consumed
+                // +1 for the newline that terminated this line.
+                consumed += line.utf8.count + 1
                 let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { continue }
-                if let message = parseLine(trimmed, sessionId: sessionId) {
+                if let message = parseLine(trimmed, sessionId: sessionId, lineOffset: lineOffset) {
                     messages.append(message)
                 }
             }
         }
-        // Handle final leftover
+        // A trailing line without a newline is not yet complete: parse it for
+        // this pass, but do not move the resume point past it.
         let trimmed = leftover.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty, let message = parseLine(trimmed, sessionId: sessionId) {
+        if !trimmed.isEmpty, let message = parseLine(trimmed, sessionId: sessionId, lineOffset: consumed) {
             messages.append(message)
         }
-        return messages
+        return ParseResult(messages: messages, bytesConsumed: consumed)
     }
 
     // MARK: - Line parsing
 
     /// Parse a single JSONL line into a ConversationMessage.
-    private func parseLine(_ line: String, sessionId: String) -> ConversationMessage? {
+    /// - lineOffset: the line's byte offset, used as a stable identity for
+    ///   records that carry no uuid of their own. A random id there would make
+    ///   every re-read look like a new message.
+    nonisolated private func parseLine(_ line: String, sessionId: String, lineOffset: Int = 0) -> ConversationMessage? {
         guard let data = line.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return nil
@@ -72,7 +105,7 @@ actor JSONLParser {
             return nil
         }
 
-        let uuid = json["uuid"] as? String ?? UUID().uuidString
+        let uuid = json["uuid"] as? String ?? "\(sessionId)@\(lineOffset)"
         let parentUuid = json["parentUuid"] as? String
         let cwd = json["cwd"] as? String
         let gitBranch = json["gitBranch"] as? String
@@ -102,7 +135,7 @@ actor JSONLParser {
     // MARK: - Text extraction
 
     /// Extract plain text from message content. Handles both String and Array formats.
-    private func extractTextContent(from json: [String: Any], type: ConversationMessage.MessageType) -> String {
+    nonisolated private func extractTextContent(from json: [String: Any], type: ConversationMessage.MessageType) -> String {
         switch type {
         case .user, .system:
             return extractFromMessageField(json)
@@ -118,13 +151,13 @@ actor JSONLParser {
     }
 
     /// Extract text from `message.content` which may be String or Array.
-    private func extractFromMessageField(_ json: [String: Any]) -> String {
+    nonisolated private func extractFromMessageField(_ json: [String: Any]) -> String {
         guard let message = json["message"] as? [String: Any] else { return "" }
         return Self.extractContentText(from: message)
     }
 
     /// Extract text from assistant message content blocks, skipping thinking blocks.
-    private func extractFromAssistantMessage(_ json: [String: Any]) -> String {
+    nonisolated private func extractFromAssistantMessage(_ json: [String: Any]) -> String {
         guard let message = json["message"] as? [String: Any] else { return "" }
         let content = message["content"]
 
@@ -164,7 +197,7 @@ actor JSONLParser {
     }
 
     /// Extract text from attachment entries.
-    private func extractFromAttachment(_ json: [String: Any]) -> String {
+    nonisolated private func extractFromAttachment(_ json: [String: Any]) -> String {
         guard let attachment = json["attachment"] as? [String: Any] else { return "" }
         if let content = attachment["content"] as? String, !content.isEmpty {
             return content
@@ -182,7 +215,7 @@ actor JSONLParser {
     }
 
     /// Extract text from queue-operation entries.
-    private func extractFromQueueOperation(_ json: [String: Any]) -> String {
+    nonisolated private func extractFromQueueOperation(_ json: [String: Any]) -> String {
         let operation = json["operation"] as? String ?? "unknown"
         if let content = json["content"] as? String, !content.isEmpty {
             return "[\(operation)] \(content)"

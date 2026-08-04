@@ -1,5 +1,25 @@
 # What's New
 
+## August 4, 2026 (build stamp)
+
+- See at a glance which version you are running and when it was built.
+
+
+## August 4, 2026 (later)
+
+- Jump to any project's folder in Finder, whichever tool you used there.
+- Even enormous Codex sessions are fully searchable.
+- A leaner, faster search index.
+
+
+## August 4, 2026
+
+- See your Codex and Cursor conversations next to your Claude Code ones.
+- One project view per folder: every tool's chats about that project, in one place.
+- One search across all three tools.
+- Choose which tools' history to include.
+
+
 ## July 25, 2026
 
 - New conversations appear in search automatically, even while Claude Code is still working.

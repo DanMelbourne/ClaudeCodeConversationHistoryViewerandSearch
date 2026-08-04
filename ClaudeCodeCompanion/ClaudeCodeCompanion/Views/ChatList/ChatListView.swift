@@ -94,6 +94,10 @@ private struct SessionRow: View {
                 Spacer()
 
                 HStack(spacing: 4) {
+                    if session.agent != .claude {
+                        AgentBadge(agent: session.agent)
+                    }
+
                     if session.isSubagent {
                         Image(systemName: "arrow.triangle.branch")
                             .font(.caption2)
@@ -110,6 +114,13 @@ private struct SessionRow: View {
                 }
             }
 
+            if let title = session.title, !title.isEmpty {
+                Text(title)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+            }
+
             if let preview = session.firstUserMessage {
                 Text(preview)
                     .font(.system(.caption, design: .monospaced))
@@ -123,7 +134,7 @@ private struct SessionRow: View {
             }
         }
         .padding(.vertical, 4)
-        .help("Session with \(session.messageCount) messages")
+        .help("\(session.agent.displayName) session with \(session.messageCount) messages")
     }
 
     private var formattedDate: String {

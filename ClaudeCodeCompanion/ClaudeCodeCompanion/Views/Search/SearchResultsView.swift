@@ -189,6 +189,10 @@ private struct SearchResultRow: View {
                     .background(badgeColor.opacity(0.15), in: Capsule())
                     .foregroundStyle(badgeColor)
 
+                if result.agent != .claude {
+                    AgentBadge(agent: result.agent)
+                }
+
                 Spacer()
 
                 Button {

@@ -7,7 +7,17 @@ struct SidebarView: View {
     var body: some View {
         @Bindable var vm = appViewModel
 
-        List(selection: $vm.selectedProject) {
+        VStack(spacing: 0) {
+            projectList
+            Divider()
+            BuildStampView()
+        }
+    }
+
+    private var projectList: some View {
+        @Bindable var vm = appViewModel
+
+        return List(selection: $vm.selectedProject) {
             Section {
                 ForEach(appViewModel.projects) { project in
                     ProjectRow(project: project)
@@ -70,9 +80,14 @@ struct SidebarView: View {
         .listStyle(.sidebar)
         .contextMenu(forSelectionType: Project.self) { selectedProjects in
             if let project = selectedProjects.first {
+                // Codex/Cursor-only projects have no transcripts folder, so
+                // reveal the working directory the agents actually ran in.
                 Button("Reveal in Finder") {
-                    NSWorkspace.shared.activateFileViewerSelecting([project.path])
+                    if let target = project.revealTarget {
+                        NSWorkspace.shared.activateFileViewerSelecting([target])
+                    }
                 }
+                .disabled(project.revealTarget == nil)
             }
         }
         .background(.ultraThinMaterial)
@@ -212,6 +227,8 @@ private struct ProjectRow: View {
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
+
+                AgentMarks(agents: project.agents)
             }
         }
         .padding(.vertical, 3)

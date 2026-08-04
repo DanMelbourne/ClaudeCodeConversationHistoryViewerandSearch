@@ -1,5 +1,26 @@
 # Distribution Changelog
 
+## Build 10 — 2026-08-04
+
+- The app now shows its version and how long ago it was built at the bottom of the sidebar, so you can tell at a glance whether you are running the latest build.
+- Build numbers now increase automatically with every change.
+
+
+## Build 8 — 2026-08-04
+
+- Reveal in Finder now works for projects that only have Codex or Cursor history.
+- Very large Codex sessions are fully searchable; the conversation view shows the start and end and says how much of the middle it left out.
+- The search index is substantially smaller and searches stay fast. Upgrading rebuilds the index once.
+
+
+## Build 7 — 2026-08-04
+
+- Companion now also reads your Codex and Cursor conversation history, not just Claude Code.
+- Conversations from all three tools for the same folder appear together under one project, each labelled with the tool that produced it.
+- Search covers every tool at once.
+- Turn Codex or Cursor history off at any time in Manage Sources.
+
+
 ## Build 6 — 2026-07-25
 
 - Conversation search now notices new and updated chats automatically.

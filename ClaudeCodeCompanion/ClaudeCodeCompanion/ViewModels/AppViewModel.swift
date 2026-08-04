@@ -81,6 +81,36 @@ final class AppViewModel {
     var externalSources: [ConversationSource] = []
     var showSourcesManager: Bool = false
 
+    // MARK: - Agents
+
+    /// Mirrors the persisted per-agent switches so SwiftUI can observe them.
+    var enabledAgents: Set<AgentKind> = Set(AgentKind.allCases.filter { AgentKind.isEnabled($0) })
+
+    @MainActor
+    func setAgent(_ agent: AgentKind, enabled: Bool) {
+        guard agent != .claude else { return }
+        AgentKind.setEnabled(enabled, for: agent)
+        if enabled { enabledAgents.insert(agent) } else { enabledAgents.remove(agent) }
+        configureFileWatchers()
+        Task { @MainActor in await reindexAgents() }
+    }
+
+    /// Re-read Codex and Cursor history and refresh the project list.
+    @MainActor
+    func reindexAgents() async {
+        guard let store else { return }
+        isIndexing = true
+        indexingStatus = "Updating Codex and Cursor history…"
+        do {
+            try await store.indexOtherAgents()
+        } catch {
+            indexingStatus = "Could not read other agents' history"
+        }
+        isIndexing = false
+        indexingStatus = ""
+        loadProjects()
+    }
+
     // MARK: - Debounce
 
     @ObservationIgnored private var searchDebounceTask: Task<Void, Never>?
@@ -170,12 +200,71 @@ final class AppViewModel {
             return
         }
 
+        let store = self.store
         Task.detached(priority: .userInitiated) { [allDirectories] in
             let loadedProjects = Self.enumerateProjects(in: allDirectories)
+            var agentProjects: [Project] = []
+            if let store {
+                agentProjects = (try? await store.projects(agents: Self.secondaryAgents)) ?? []
+            }
+            let merged = Self.merge(agentProjects: agentProjects, into: loadedProjects)
             await MainActor.run { [weak self] in
-                self?.projects = loadedProjects
+                self?.projects = merged
             }
         }
+    }
+
+    /// Agents whose history lives outside `~/.claude/projects` and therefore
+    /// comes from the index rather than the filesystem walk.
+    static var secondaryAgents: Set<AgentKind> {
+        Set(AgentKind.allCases.filter { $0 != .claude && AgentKind.isEnabled($0) })
+    }
+
+    /// Fold Codex/Cursor projects into the Claude project list, merging any
+    /// that point at the same working directory so one row shows every agent.
+    nonisolated static func merge(agentProjects: [Project], into fileProjects: [Project]) -> [Project] {
+        // Worktree folders belong to their parent project, exactly as the
+        // filesystem walk already merges them.
+        func baseName(_ folder: String) -> String {
+            guard let range = folder.range(of: "--claude-worktrees-") else { return folder }
+            return String(folder[..<range.lowerBound])
+        }
+
+        var byFolderName: [String: Project] = [:]
+        var order: [String] = []
+
+        for project in fileProjects {
+            let key = baseName(project.path.lastPathComponent)
+            byFolderName[key] = project
+            order.append(key)
+        }
+
+        for project in agentProjects {
+            let key = baseName(project.path.lastPathComponent)
+            if var existing = byFolderName[key] {
+                existing.sessionCount += project.sessionCount
+                existing.agents.formUnion(project.agents)
+                existing.workingDirectory = existing.workingDirectory ?? project.workingDirectory
+                let dates = [existing.lastActivityDate, project.lastActivityDate].compactMap { $0 }
+                existing.lastActivityDate = dates.max()
+                byFolderName[key] = existing
+            } else {
+                byFolderName[key] = Project(
+                    id: key,
+                    displayName: ConversationStore.deriveProjectName(from: key),
+                    path: project.path.deletingLastPathComponent().appendingPathComponent(key),
+                    additionalPaths: [],
+                    sessionCount: project.sessionCount,
+                    lastActivityDate: project.lastActivityDate,
+                    agents: project.agents,
+                    workingDirectory: project.workingDirectory
+                )
+                order.append(key)
+            }
+        }
+
+        return order.compactMap { byFolderName[$0] }
+            .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
     }
 
     /// Enumerate project folders on a background thread. Pure function, no main-thread dependency.
@@ -284,9 +373,32 @@ final class AppViewModel {
 
         let projectId = project.id
         let allPaths = project.allPaths
+        let store = self.store
 
         loadSessionsTask = Task.detached(priority: .userInitiated) { [weak self] in
-            let loadedSessions = Self.enumerateSessions(projectId: projectId, paths: allPaths)
+            var loadedSessions = Self.enumerateSessions(projectId: projectId, paths: allPaths)
+            if let store {
+                let agentSessions = (try? await store.sessions(
+                    projectPaths: allPaths.map(\.path),
+                    agents: Self.secondaryAgents
+                )) ?? []
+                // Sessions come back keyed by the index's project path; retag
+                // them with the sidebar project id so selection matches.
+                loadedSessions.append(contentsOf: agentSessions.map { session in
+                    ConversationSession(
+                        id: session.id,
+                        projectId: projectId,
+                        filePath: session.filePath,
+                        firstUserMessage: session.firstUserMessage,
+                        timestamp: session.timestamp,
+                        messageCount: session.messageCount,
+                        isSubagent: session.isSubagent,
+                        agent: session.agent,
+                        title: session.title
+                    )
+                })
+                loadedSessions.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+            }
             guard !Task.isCancelled else { return }
             await MainActor.run { [weak self] in
                 guard let self, !Task.isCancelled else { return }
@@ -352,16 +464,21 @@ final class AppViewModel {
         cachedConversationSessionID = nil
         cachedConversationNotice = nil
 
-        guard FileManager.default.fileExists(atPath: session.filePath.path) else {
+        // Cursor keeps its history in a database, so only file-backed agents
+        // are checked for a missing transcript.
+        if session.agent != .cursor,
+           !FileManager.default.fileExists(atPath: session.filePath.path) {
             messages = []
             return
         }
 
         isLoadingMessages = true
         let filePath = session.filePath
+        let agent = session.agent
+        let sessionId = session.id
 
         loadMessagesTask = Task.detached(priority: .userInitiated) { [weak self] in
-            let parsed = Self.parseMessagesStreaming(from: filePath)
+            let parsed = Self.parseMessages(agent: agent, filePath: filePath, sessionId: sessionId)
             guard !Task.isCancelled else { return }
             await MainActor.run { [weak self] in
                 guard let self, !Task.isCancelled else { return }
@@ -433,6 +550,36 @@ final class AppViewModel {
         }
         guard let window = presentationWindow else { return }
         alert.beginSheetModal(for: window, completionHandler: complete)
+    }
+
+    /// Load one session's messages from whichever agent produced it.
+    nonisolated static func parseMessages(agent: AgentKind, filePath: URL, sessionId: String) -> [ParsedMessage] {
+        switch agent {
+        case .claude:
+            return parseMessagesStreaming(from: filePath)
+        case .codex:
+            guard let session = CodexHistoryProvider.parseSession(at: filePath) else { return [] }
+            return parsedMessages(from: session.messages)
+        case .cursor:
+            guard let conversation = CursorHistoryProvider.conversations().first(where: { $0.id == sessionId })
+            else { return [] }
+            return parsedMessages(from: CursorHistoryProvider.messages(for: conversation))
+        }
+    }
+
+    /// Convert transcoded agent messages into the renderer's block form.
+    nonisolated static func parsedMessages(from messages: [ConversationMessage]) -> [ParsedMessage] {
+        messages.compactMap { message in
+            let blocks = JSONLParser.parseContentBlocks(from: message.contentRaw)
+            guard !blocks.isEmpty else { return nil }
+            return ParsedMessage(
+                id: message.id,
+                type: message.type,
+                timestamp: message.timestamp,
+                blocks: blocks,
+                rawJSON: message.contentRaw
+            )
+        }
     }
 
     /// Stream-parse a JSONL file into ParsedMessages without loading the entire file into memory.
@@ -616,6 +763,7 @@ final class AppViewModel {
         let allPaths = project.allPaths
         let sessionId = result.sessionId
         let targetUuid = result.messageUuid
+        let store = self.store
 
         // Load sessions and messages in background, then navigate.
         // Assign to tracked tasks so future calls can cancel this one.
@@ -629,7 +777,30 @@ final class AppViewModel {
                 }
             }
 
-            let loadedSessions = Self.enumerateSessions(projectId: projectId, paths: allPaths)
+            var loadedSessions = Self.enumerateSessions(projectId: projectId, paths: allPaths)
+
+            // Codex and Cursor sessions are not files under the project folder,
+            // so they come from the index alongside the Claude transcripts.
+            if let store {
+                let agentSessions = (try? await store.sessions(
+                    projectPaths: allPaths.map(\.path),
+                    agents: Self.secondaryAgents
+                )) ?? []
+                loadedSessions.append(contentsOf: agentSessions.map { session in
+                    ConversationSession(
+                        id: session.id,
+                        projectId: projectId,
+                        filePath: session.filePath,
+                        firstUserMessage: session.firstUserMessage,
+                        timestamp: session.timestamp,
+                        messageCount: session.messageCount,
+                        isSubagent: session.isSubagent,
+                        agent: session.agent,
+                        title: session.title
+                    )
+                })
+                loadedSessions.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+            }
 
             var session = loadedSessions.first(where: { $0.id == sessionId })
 
@@ -673,7 +844,11 @@ final class AppViewModel {
                 return
             }
             guard !Task.isCancelled else { return }
-            let parsed = Self.parseMessagesStreaming(from: session.filePath)
+            let parsed = Self.parseMessages(
+                agent: session.agent,
+                filePath: session.filePath,
+                sessionId: session.id
+            )
             guard !Task.isCancelled else { return }
 
             await MainActor.run { [weak self] in
@@ -923,7 +1098,13 @@ final class AppViewModel {
         externalSources: [ConversationSource]
     ) -> [URL] {
         let localProjects = homeDirectory.appendingPathComponent(".claude/projects", isDirectory: true)
-        let paths = [localProjects] + externalSources
+        // Codex writes rollouts continuously, so it gets a watcher too. Cursor
+        // writes into one multi-gigabyte database that every keystroke touches;
+        // it refreshes on launch and on demand instead.
+        let codexSessions = AgentKind.isEnabled(.codex)
+            ? [homeDirectory.appendingPathComponent(".codex/sessions", isDirectory: true)]
+            : []
+        let paths = [localProjects] + codexSessions + externalSources
             .filter { $0.isEnabled && $0.isAccessible }
             .map { URL(fileURLWithPath: $0.path, isDirectory: true) }
 

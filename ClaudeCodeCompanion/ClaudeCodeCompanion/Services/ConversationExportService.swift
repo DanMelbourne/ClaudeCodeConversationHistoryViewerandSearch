@@ -67,7 +67,8 @@ enum ConversationExportService {
             var messageCount = 0
             for project in projects.sorted(by: { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }) {
                 let sessions = sessionFiles(for: project)
-                guard !sessions.isEmpty else { continue }
+                let agentReferences = agentSessionReferences(for: project)
+                guard !sessions.isEmpty || !agentReferences.isEmpty else { continue }
 
                 projectCount += 1
                 try write("\n# \(project.displayName)\n", to: handle)
@@ -81,6 +82,26 @@ enum ConversationExportService {
                         try write("\n## \(title)\n", to: handle)
                     }
                     messageCount += try appendMessages(from: session.url, to: handle)
+                }
+
+                // Codex and Cursor conversations for the same folder follow the
+                // Claude transcripts so one file holds the whole project.
+                for reference in agentReferences {
+                    let messages = agentMessages(for: reference)
+                    guard !messages.isEmpty else { continue }
+                    conversationCount += 1
+
+                    let title = "\(reference.agent.displayName): \(reference.title)"
+                    if let date = reference.date {
+                        try write("\n## \(title) — \(ISO8601DateFormatter().string(from: date))\n", to: handle)
+                    } else {
+                        try write("\n## \(title)\n", to: handle)
+                    }
+                    for message in messages {
+                        if try appendInteractiveChatMessage(message.contentRaw, to: handle) {
+                            messageCount += 1
+                        }
+                    }
                 }
             }
 
@@ -102,6 +123,72 @@ enum ConversationExportService {
 
     static func exportProjectConversations(from project: Project, to destination: URL) throws -> ExportResult {
         try exportAllConversations(from: [project], to: destination)
+    }
+
+    // MARK: - Codex and Cursor sessions
+
+    /// A conversation from an agent that stores history outside the project
+    /// folder. Bodies are read one at a time so a large export stays bounded.
+    enum AgentSessionReference {
+        case codex(url: URL, id: String, date: Date?)
+        case cursor(CursorHistoryProvider.Conversation)
+
+        var agent: AgentKind {
+            switch self {
+            case .codex: return .codex
+            case .cursor: return .cursor
+            }
+        }
+
+        var title: String {
+            switch self {
+            case .codex(_, let id, _): return id
+            case .cursor(let conversation): return conversation.title
+            }
+        }
+
+        var date: Date? {
+            switch self {
+            case .codex(_, _, let date): return date
+            case .cursor(let conversation): return conversation.createdAt ?? conversation.updatedAt
+            }
+        }
+    }
+
+    /// Find the Codex rollouts and Cursor conversations whose working directory
+    /// maps onto this project's folder.
+    static func agentSessionReferences(for project: Project) -> [AgentSessionReference] {
+        let folderNames = Set(project.allPaths.map(\.lastPathComponent) + [project.id])
+        var references: [AgentSessionReference] = []
+
+        if AgentKind.isEnabled(.codex) {
+            for file in CodexHistoryProvider.rolloutFiles() {
+                guard let header = CodexHistoryProvider.readHeader(at: file),
+                      folderNames.contains(ProjectPathEncoder.encodedFolderName(for: header.workingDirectory))
+                else { continue }
+                references.append(.codex(url: file, id: header.id, date: header.modificationDate))
+            }
+        }
+
+        if AgentKind.isEnabled(.cursor) {
+            for conversation in CursorHistoryProvider.conversations() {
+                let directory = conversation.workingDirectory
+                    ?? CursorHistoryProvider.Conversation.unassignedWorkingDirectory
+                guard folderNames.contains(ProjectPathEncoder.encodedFolderName(for: directory)) else { continue }
+                references.append(.cursor(conversation))
+            }
+        }
+
+        return references.sorted { ($0.date ?? .distantPast) < ($1.date ?? .distantPast) }
+    }
+
+    static func agentMessages(for reference: AgentSessionReference) -> [ConversationMessage] {
+        switch reference {
+        case .codex(let url, _, _):
+            return CodexHistoryProvider.parseSession(at: url)?.messages ?? []
+        case .cursor(let conversation):
+            return CursorHistoryProvider.messages(for: conversation)
+        }
     }
 
     private static func sessionFiles(for project: Project) -> [(url: URL, date: Date?)] {
@@ -225,10 +312,13 @@ enum ConversationExportService {
         let content = blocks.map(contentText).filter { !$0.isEmpty }.joined(separator: "\n\n")
         guard !content.isEmpty else { return false }
 
+        // Transcoded Codex/Cursor records carry their agent so the export names
+        // the right assistant.
+        let agent = (json["agent"] as? String).flatMap(AgentKind.init(rawValue:)) ?? .claude
         let role: String
         switch type {
         case "user", "human": role = "User"
-        case "assistant": role = "Claude"
+        case "assistant": role = agent == .claude ? "Claude" : agent.displayName
         default: return false
         }
         let timestamp = (json["timestamp"] as? String) ?? "Unknown time"

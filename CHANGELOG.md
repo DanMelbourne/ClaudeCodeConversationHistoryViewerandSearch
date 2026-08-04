@@ -1,5 +1,44 @@
 # Changelog
 
+## Build 10 — 2026-08-04
+
+- Added `build.sh`: derives the build number from the git commit count (always forward, identical for repeat builds of one commit), installs to `/Applications`, stamps the bundle with build date, source branch/commit and an uncommitted-changes flag, re-signs, then verifies the installed version, provenance and that the binary is newer than the sources.
+- Added `scripts/verify-build-base.sh`: refuses to build from behind `origin/main` or to move the installed app backwards in history (`CCC_ALLOW_STALE_BASE=1` overrides).
+- The sidebar footer now shows `v1.0.7 (7) · built 4 min ago`, refreshing every 30 s, amber past 24 h, with source and exact build time in the tooltip; click copies the details.
+- `dist.sh` uses the same version rule and stamps the same provenance keys before signing.
+- Added `scripts/test_build_script.sh` guarding the pipeline's disciplines.
+
+
+## Build 9 — 2026-08-04
+
+- Append-only transcripts resume from a recorded byte offset: a live Claude Code session or Codex rollout now costs only the bytes added since the last pass, instead of a full re-parse and re-index on every append.
+- Records with no uuid of their own get a deterministic id from their byte offset, and `messages` gained a unique `(session_id, uuid)` index with `INSERT OR IGNORE`, so a partially-written final line re-read on the next pass can never double-index.
+- Measured on this Mac: the in-place migration took 185 s and shrank the index from 6.9 GB to 5.2 GB, collapsing 10,440 duplicate message groups (Claude 806,241 → 799,192; Codex 130,660 → 122,101) with every session and every deleted-transcript recovery row preserved. Search of the migrated index returns 500 hits with context in ~0.18 s.
+- Upgrading migrates the existing index in place — trimming payloads and collapsing duplicate rows — instead of rebuilding it, so cached copies of transcripts that have since been deleted from disk survive.
+- Duplicate indexing of a session transcript that exists in both a project folder and its worktree copy is collapsed, removing double search hits.
+
+
+## Build 8 — 2026-08-04
+
+- Reveal in Finder now opens the project's real working directory, so it works for projects that only exist in Codex or Cursor; the menu item disables when nothing is on disk.
+- Codex rollouts are streamed and indexed in full — every message of a multi-gigabyte session is searchable. The transcript view keeps the opening and closing 2,000 messages and states how many it left out.
+- Index storage policy: `content_raw` is kept only for user and assistant records and capped at 64 KB (it exists solely for the cached-copy view). On this Mac that removes ~1.9 GB of a 6.9 GB index. Searchable text is never trimmed.
+- Indexing reads the file ledger once per pass instead of querying per file (~6,000 round trips removed from a no-op refresh).
+- Search reuses two prepared statements for context lookups instead of recompiling them per result.
+- SQLite tuning: 32 MB page cache, memory temp store, 1 GB mmap, `PRAGMA optimize` on close.
+- Changing the storage policy drops and rebuilds the index rather than deleting a million rows through the FTS trigger.
+
+
+## Build 7 — 2026-08-04
+
+- Indexes Codex CLI/Desktop rollouts from `~/.codex/sessions` and Cursor agent conversations from Cursor's `state.vscdb`, alongside Claude Code transcripts.
+- Adapters transcode Codex and Cursor records into the existing Claude-shaped message model, so rendering, FTS search, cached recovery and export work unchanged for all three agents.
+- Merges every agent's sessions for the same working directory into one project row, including git worktrees; sessions and search results carry an agent badge.
+- Adds per-agent switches in the Sources sheet; disabling an agent purges its rows from the index.
+- Adds an `agent` column to `messages` and `indexed_files` with an in-place migration for existing indexes.
+- Caps Codex session parsing at 64 MB / 20,000 messages so a multi-gigabyte rollout cannot exhaust memory.
+
+
 ## Build 6 — 2026-07-25
 
 - Keeps the search index current while Claude Code writes conversations, including nested subagent transcripts and enabled external sources.

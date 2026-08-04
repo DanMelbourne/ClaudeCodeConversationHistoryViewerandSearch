@@ -47,9 +47,14 @@ final class FileWatcherTests: XCTestCase {
             externalSources: [enabled, duplicate, disabled]
         )
 
+        // Codex rollouts are watched alongside the Claude projects folder.
         XCTAssertEqual(
             Set(paths.map(\.standardizedFileURL.path)),
-            [home.appendingPathComponent(".claude/projects").standardizedFileURL.path, external.standardizedFileURL.path]
+            [
+                home.appendingPathComponent(".claude/projects").standardizedFileURL.path,
+                home.appendingPathComponent(".codex/sessions").standardizedFileURL.path,
+                external.standardizedFileURL.path
+            ]
         )
     }
 

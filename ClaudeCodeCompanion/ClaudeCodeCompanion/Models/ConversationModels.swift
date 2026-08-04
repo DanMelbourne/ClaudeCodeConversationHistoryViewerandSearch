@@ -12,6 +12,22 @@ struct Project: Identifiable, Hashable {
     var additionalPaths: [URL]      // worktree paths merged into this project
     var sessionCount: Int
     var lastActivityDate: Date?
+    /// Which agents contributed sessions to this project.
+    var agents: Set<AgentKind> = [.claude]
+    /// The real working directory the agents ran in, when the index knows it.
+    /// Used for Reveal in Finder — the transcripts folder only exists for
+    /// projects Claude Code has written to.
+    var workingDirectory: String?
+
+    /// The best folder to reveal in Finder, or nil when nothing exists on disk.
+    var revealTarget: URL? {
+        let fileManager = FileManager.default
+        if let workingDirectory, fileManager.fileExists(atPath: workingDirectory) {
+            return URL(fileURLWithPath: workingDirectory)
+        }
+        if fileManager.fileExists(atPath: path.path) { return path }
+        return nil
+    }
 
     /// All paths belonging to this project (base + worktrees).
     var allPaths: [URL] { [path] + additionalPaths }
@@ -46,7 +62,8 @@ struct Project: Identifiable, Hashable {
 
 // MARK: - ConversationSession
 
-/// A conversation session (one JSONL file)
+/// A conversation session (one JSONL file for Claude Code and Codex; one
+/// composer record for Cursor, where `filePath` points at Cursor's database).
 struct ConversationSession: Identifiable, Hashable {
     let id: String
     let projectId: String
@@ -55,6 +72,9 @@ struct ConversationSession: Identifiable, Hashable {
     var timestamp: Date?
     var messageCount: Int
     var isSubagent: Bool
+    var agent: AgentKind = .claude
+    /// Cursor conversations have a user-visible title; nil elsewhere.
+    var title: String?
 }
 
 // MARK: - ConversationMessage
@@ -70,6 +90,7 @@ struct ConversationMessage: Identifiable, Hashable {
     let parentUuid: String?
     let cwd: String?
     let gitBranch: String?
+    var agent: AgentKind = .claude
 
     enum MessageType: String, Codable, Hashable {
         case user
@@ -124,6 +145,7 @@ struct SearchResult: Identifiable {
     let fullText: String
     let contextBefore: String
     let contextAfter: String
+    var agent: AgentKind = .claude
 
     var projectDisplayName: String {
         let url = URL(fileURLWithPath: projectPath)

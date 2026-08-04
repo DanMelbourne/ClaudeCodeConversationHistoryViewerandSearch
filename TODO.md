@@ -3,6 +3,14 @@
 ## Current Sprint — v1.0.0
 
 ### Done
+- [x] `build.sh` with commit-count versioning, provenance stamping and install verification
+- [x] In-app build stamp: version + "built N ago" in the sidebar footer
+- [x] Reveal in Finder opens the project's real working directory (works for Codex/Cursor-only projects)
+- [x] Byte-offset incremental indexing, deterministic message ids, duplicate-proof inserts
+- [x] Index storage policy with in-place migration (~1.9 GB reclaimed on this Mac)
+- [x] Index Codex (`~/.codex/sessions`) and Cursor (`state.vscdb`) conversation history alongside Claude Code
+- [x] Merge all agents' sessions for one working directory into a single project row, with per-session agent badges
+- [x] Per-agent switches in Manage Sources; disabling an agent purges its index rows
 - [x] Keep the conversation index current with filesystem watchers
 - [x] Offer an explicitly labelled cached reconstruction when a searched JSONL transcript is missing
 - [x] Explain when a search hit's original JSONL transcript is no longer available on disk

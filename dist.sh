@@ -25,8 +25,27 @@ STAGING_DIR="$DIST_DIR/staging"
 ARCHIVE_PATH="$STAGING_DIR/$ARCHIVE_NAME.xcarchive"
 NOTARY_PROFILE="${NOTARY_PROFILE:-claude-code-companion-notarize}"
 
-VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$INFO_PLIST")"
-BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$INFO_PLIST")"
+# Release versions follow the same rule as ./build.sh: the build number is the
+# commit count, so it always moves forward and two builds of one commit agree.
+./scripts/verify-build-base.sh "$PWD"
+
+COMMIT_COUNT="$(git rev-list --count HEAD 2>/dev/null || echo 0)"
+BUILD="$COMMIT_COUNT"
+[ "$BUILD" -lt 1 ] && BUILD=1
+CURRENT_VER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$INFO_PLIST")"
+VERSION="$(printf '%s' "$CURRENT_VER" | cut -d. -f1-2).$BUILD"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$INFO_PLIST"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD" "$INFO_PLIST"
+
+BUILD_SOURCE_BRANCH="$(git branch --show-current 2>/dev/null || true)"
+[ -n "$BUILD_SOURCE_BRANCH" ] || BUILD_SOURCE_BRANCH="detached-HEAD"
+BUILD_SOURCE_COMMIT="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
+BUILD_DATE="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+BUILD_DIRTY="NO"
+if [ -n "$(git status --porcelain 2>/dev/null || true)" ]; then
+    BUILD_DIRTY="YES"
+    echo "⚠ Releasing with uncommitted changes — the app will say so in its build stamp."
+fi
 DMG_PATH="$DIST_DIR/$ARCHIVE_NAME-$VERSION.dmg"
 
 SIGN_IDENTITY="${SIGNING_IDENTITY:-}"
@@ -61,6 +80,8 @@ xcodebuild \
     -configuration Release \
     -archivePath "$ARCHIVE_PATH" \
     CODE_SIGNING_ALLOWED=NO \
+    MARKETING_VERSION="$VERSION" \
+    CURRENT_PROJECT_VERSION="$BUILD" \
     archive
 
 APP_PATH="$ARCHIVE_PATH/Products/Applications/$APP_NAME.app"
@@ -68,6 +89,19 @@ if [ ! -d "$APP_PATH" ]; then
     echo "Archive did not produce $APP_NAME.app." >&2
     exit 1
 fi
+
+# Stamp provenance before signing — editing Info.plist afterwards would break
+# the signature, and the app reads these keys for its build stamp.
+ARCHIVE_PLIST="$APP_PATH/Contents/Info.plist"
+stamp_key() {
+    /usr/libexec/PlistBuddy -c "Delete :$1" "$ARCHIVE_PLIST" 2>/dev/null || true
+    /usr/libexec/PlistBuddy -c "Add :$1 $2 $3" "$ARCHIVE_PLIST"
+}
+stamp_key CCCBuildSourceBranch  string "$BUILD_SOURCE_BRANCH"
+stamp_key CCCBuildSourceCommit  string "$BUILD_SOURCE_COMMIT"
+stamp_key CCCBuildDate          string "$BUILD_DATE"
+stamp_key CCCBuildDirty         bool   "$BUILD_DIRTY"
+stamp_key CCCBuildConfiguration string "Release"
 
 echo "Signing with $SIGN_IDENTITY"
 xattr -cr "$APP_PATH" 2>/dev/null || true

@@ -34,6 +34,19 @@
 		E10000010000000000000042 /* AppViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E20000010000000000000043; };
 		E10000010000000000000043 /* FileWatcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E20000010000000000000044; };
 		E10000010000000000000044 /* CrashReporterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E20000010000000000000045; };
+		EB0000000000000000000901 /* AgentKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000901 /* AgentKind.swift */; };
+		EB0000000000000000000902 /* AgentMessageBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000902 /* AgentMessageBuilder.swift */; };
+		EB0000000000000000000903 /* CodexHistoryProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000903 /* CodexHistoryProvider.swift */; };
+		EB0000000000000000000904 /* CursorHistoryProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000904 /* CursorHistoryProvider.swift */; };
+		EB0000000000000000000905 /* AgentBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000905 /* AgentBadge.swift */; };
+		EB0000000000000000000906 /* CodexHistoryProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000906 /* CodexHistoryProviderTests.swift */; };
+		EB0000000000000000000907 /* CursorHistoryProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000907 /* CursorHistoryProviderTests.swift */; };
+		EB0000000000000000000908 /* AgentIndexingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000908 /* AgentIndexingTests.swift */; };
+		EB0000000000000000000A01 /* IncrementalIndexingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000A01 /* IncrementalIndexingTests.swift */; };
+		EB0000000000000000000909 /* IndexMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000909 /* IndexMigrationTests.swift */; };
+		EB000000000000000000090A /* BuildStampView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA000000000000000000090A /* BuildStampView.swift */; };
+		EB000000000000000000090B /* BuildInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA000000000000000000090B /* BuildInfo.swift */; };
+		EB000000000000000000090C /* BuildInfoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA000000000000000000090C /* BuildInfoTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -67,6 +80,19 @@
 		E20000010000000000000043 /* AppViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppViewModelTests.swift; sourceTree = "<group>"; };
 		E20000010000000000000044 /* FileWatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileWatcherTests.swift; sourceTree = "<group>"; };
 		E20000010000000000000045 /* CrashReporterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashReporterTests.swift; sourceTree = "<group>"; };
+		EA0000000000000000000901 /* AgentKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentKind.swift"; sourceTree = "<group>"; };
+		EA0000000000000000000902 /* AgentMessageBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Agents/AgentMessageBuilder.swift"; sourceTree = "<group>"; };
+		EA0000000000000000000903 /* CodexHistoryProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Agents/CodexHistoryProvider.swift"; sourceTree = "<group>"; };
+		EA0000000000000000000904 /* CursorHistoryProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Agents/CursorHistoryProvider.swift"; sourceTree = "<group>"; };
+		EA0000000000000000000905 /* AgentBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentBadge.swift"; sourceTree = "<group>"; };
+		EA0000000000000000000906 /* CodexHistoryProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CodexHistoryProviderTests.swift"; sourceTree = "<group>"; };
+		EA0000000000000000000907 /* CursorHistoryProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CursorHistoryProviderTests.swift"; sourceTree = "<group>"; };
+		EA0000000000000000000908 /* AgentIndexingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentIndexingTests.swift"; sourceTree = "<group>"; };
+		EA0000000000000000000A01 /* IncrementalIndexingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "IncrementalIndexingTests.swift"; sourceTree = "<group>"; };
+		EA0000000000000000000909 /* IndexMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "IndexMigrationTests.swift"; sourceTree = "<group>"; };
+		EA000000000000000000090A /* BuildStampView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BuildStampView.swift"; sourceTree = "<group>"; };
+		EA000000000000000000090B /* BuildInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BuildInfo.swift"; sourceTree = "<group>"; };
+		EA000000000000000000090C /* BuildInfoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BuildInfoTests.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -108,6 +134,12 @@
 		E40000010000000000000020 /* ClaudeCodeCompanionTests */ = {
 			isa = PBXGroup;
 			children = (
+				EA000000000000000000090C /* BuildInfoTests.swift */,
+				EA0000000000000000000909 /* IndexMigrationTests.swift */,
+				EA0000000000000000000A01 /* IncrementalIndexingTests.swift */,
+				EA0000000000000000000906 /* CodexHistoryProviderTests.swift */,
+				EA0000000000000000000907 /* CursorHistoryProviderTests.swift */,
+				EA0000000000000000000908 /* AgentIndexingTests.swift */,
 				E20000010000000000000040 /* ConversationExportServiceTests.swift */,
 				E20000010000000000000043 /* AppViewModelTests.swift */,
 				E20000010000000000000044 /* FileWatcherTests.swift */,
@@ -133,6 +165,7 @@
 		E40000010000000000000002 /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				EA0000000000000000000901 /* AgentKind.swift */,
 				E20000010000000000000003 /* ConversationModels.swift */,
 				E20000010000000000000020 /* ConversationSource.swift */,
 			);
@@ -150,6 +183,8 @@
 		E40000010000000000000004 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				EA000000000000000000090A /* BuildStampView.swift */,
+				EA0000000000000000000905 /* AgentBadge.swift */,
 				E20000010000000000000002 /* ContentView.swift */,
 				E20000010000000000000017 /* DetailView.swift */,
 				E40000010000000000000006 /* Sidebar */,
@@ -173,6 +208,10 @@
 		E40000010000000000000005 /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				EA000000000000000000090B /* BuildInfo.swift */,
+				EA0000000000000000000902 /* AgentMessageBuilder.swift */,
+				EA0000000000000000000903 /* CodexHistoryProvider.swift */,
+				EA0000000000000000000904 /* CursorHistoryProvider.swift */,
 				E20000010000000000000042 /* ConversationExportService.swift */,
 				E20000010000000000000004 /* JSONLParser.swift */,
 				E20000010000000000000005 /* DatabaseManager.swift */,
@@ -341,6 +380,13 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				EB000000000000000000090A /* BuildStampView.swift in Sources */,
+				EB000000000000000000090B /* BuildInfo.swift in Sources */,
+				EB0000000000000000000901 /* AgentKind.swift in Sources */,
+				EB0000000000000000000902 /* AgentMessageBuilder.swift in Sources */,
+				EB0000000000000000000903 /* CodexHistoryProvider.swift in Sources */,
+				EB0000000000000000000904 /* CursorHistoryProvider.swift in Sources */,
+				EB0000000000000000000905 /* AgentBadge.swift in Sources */,
 				E10000010000000000000001 /* ClaudeCodeCompanionApp.swift in Sources */,
 				E10000010000000000000002 /* ContentView.swift in Sources */,
 				E10000010000000000000003 /* ConversationModels.swift in Sources */,
@@ -369,6 +415,12 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				EB000000000000000000090C /* BuildInfoTests.swift in Sources */,
+				EB0000000000000000000909 /* IndexMigrationTests.swift in Sources */,
+				EB0000000000000000000A01 /* IncrementalIndexingTests.swift in Sources */,
+				EB0000000000000000000906 /* CodexHistoryProviderTests.swift in Sources */,
+				EB0000000000000000000907 /* CursorHistoryProviderTests.swift in Sources */,
+				EB0000000000000000000908 /* AgentIndexingTests.swift in Sources */,
 				E10000010000000000000040 /* ConversationExportServiceTests.swift in Sources */,
 				E10000010000000000000042 /* AppViewModelTests.swift in Sources */,
 				E10000010000000000000043 /* FileWatcherTests.swift in Sources */,

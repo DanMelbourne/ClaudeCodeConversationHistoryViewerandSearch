@@ -37,8 +37,13 @@ ClaudeCodeCompanion/
 
 ## Build & Run
 ```bash
-cd ClaudeCodeCompanion
-xcodebuild -scheme ClaudeCodeCompanion -configuration Debug build SYMROOT=/Applications
+./build.sh
+```
+Installs to `/Applications/Claude Code Companion.app`, sets the version from the git commit count, and stamps build date + source commit into the bundle (the sidebar footer shows "v1.0.7 (7) · built 4 min ago"). `--debug`, `--clean`, `--no-open` are supported. Never hand-roll an `xcodebuild … SYMROOT=/Applications` install: it leaves an unstamped bundle, so the app cannot tell you which build it is.
+
+For a fast compile/test loop only (no install):
+```bash
+cd ClaudeCodeCompanion && xcodebuild -scheme ClaudeCodeCompanion -configuration Debug test
 ```
 
 ## Sentry Setup
@@ -85,4 +90,8 @@ Uses OpenRouter with GPT to review all Swift files. Project-specific bug classes
 - LazyVStack laziness: a list that can grow to hundreds of items MUST be a single flat LazyVStack (or List) iterating one ForEach. NEVER nest VStack/ForEach per section inside a LazyVStack — the inner content renders eagerly, building every row at once and freezing the main thread (multi-second app hangs, visible in Sentry as `swift_arrayDestroy` / deep `NSView _layoutSubtreeWithOldSize` recursion). Flatten section headers + rows into one typed-item array.
 - Picker/control that drives a query: any control that changes search/filter state (scope, sort, filter) must have an `.onChange` that re-runs the query. A Picker bound to state does NOT re-trigger dependent work on its own — stale results stay on screen.
 - Current Project search must match the project's base folder AND all worktree folders (`<base>--claude-worktrees-…`), including worktrees deleted from disk. Filter on the DB base path, not the on-disk `allPaths`.
+- Agent adapters must transcode into the Claude record shape (`{"type":…,"message":{"role":…,"content":[blocks]}}`) — never add a second renderer/exporter path per agent.
+- Any new agent source must set `messages.agent`/`indexed_files.agent` and group by `ProjectPathEncoder.projectPath(for: cwd)`, or its sessions will not merge into the right project.
+- Unbounded external transcripts (Codex rollouts reach 1.5 GB) must be parsed with byte/message caps and a visible truncation notice — never read whole into memory.
+- Any change to version/provenance handling must keep `CFBundleVersion` monotonic (commit count) and keep the bundle's `CCCBuild*` stamps in step — an app that cannot say which build it is wastes a test cycle every time.
 - Sentry must not initialise under XCTest: test-host layout and deliberate waits are not customer app hangs.
