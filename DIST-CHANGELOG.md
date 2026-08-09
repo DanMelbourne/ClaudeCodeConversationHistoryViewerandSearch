@@ -1,5 +1,10 @@
 # Distribution Changelog
 
+## Unreleased — 2026-08-09
+
+- Selecting a project now shows its available conversations immediately, even while additional Codex and Cursor history is still being added.
+- Debug builds now launch reliably after installation.
+
 ## Build 10 — 2026-08-04
 
 - The app now shows its version and how long ago it was built at the bottom of the sidebar, so you can tell at a glance whether you are running the latest build.

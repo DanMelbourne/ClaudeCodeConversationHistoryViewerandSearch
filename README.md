@@ -14,6 +14,7 @@ A native macOS app for browsing, searching, and managing coding-agent conversati
 - **Finder reveal** — Open a project’s conversation-history folder directly from the sidebar
 - **Project export** — Save the selected project's visible user and Claude chat as one plain-text file
 - **Live updates** — New and changed Claude Code transcripts, including nested subagent chats and enabled external sources, are indexed automatically
+- **Responsive project loading** — Available conversations appear immediately while optional cross-agent history finishes loading
 - **Safe recovery** — If a searched transcript was deleted, Companion says so and can show its clearly labelled local cached reconstruction
 - **Reveal in Finder** — opens a project's real working directory for any agent
 - **Codex and Cursor history** — Codex rollouts and Cursor agent conversations are indexed alongside Claude Code, merged into the same project rows and badged by agent; each agent can be switched off in Manage Sources

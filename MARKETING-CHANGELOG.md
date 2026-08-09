@@ -1,5 +1,9 @@
 # What's New
 
+## August 9, 2026
+
+- Project conversations appear immediately when you choose a project, so a large history index no longer makes the conversation list look empty.
+
 ## August 4, 2026 (build stamp)
 
 - See at a glance which version you are running and when it was built.

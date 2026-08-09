@@ -134,17 +134,20 @@ stamp CCCBuildDirty        bool   "$BUILD_DIRTY"
 stamp CCCBuildConfiguration string "$CONFIG"
 
 # Editing Info.plist invalidates the signature, so re-sign after stamping.
+# Debug builds contain a companion `*.debug.dylib` next to the main executable.
+# It must be signed with the same identity as the app or dyld rejects the app
+# before SwiftUI can create a window.
 SIGN_IDENTITY="${SIGNING_IDENTITY:-}"
 if [ -z "$SIGN_IDENTITY" ]; then
     SIGN_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null \
         | grep 'Developer ID Application' | head -1 | awk '{print $2}' || true)"
 fi
 if [ -n "$SIGN_IDENTITY" ]; then
-    codesign --force --options runtime --sign "$SIGN_IDENTITY" --entitlements "$ENTITLEMENTS" "$APP_DIR"
+    codesign --force --deep --options runtime --sign "$SIGN_IDENTITY" --entitlements "$ENTITLEMENTS" "$APP_DIR"
 else
-    codesign --force --sign - --entitlements "$ENTITLEMENTS" "$APP_DIR"
+    codesign --force --deep --sign - --entitlements "$ENTITLEMENTS" "$APP_DIR"
 fi
-codesign --verify "$APP_DIR"
+codesign --verify --verbose --deep --strict "$APP_DIR"
 
 # ------------------------------------------------------------- verify install
 

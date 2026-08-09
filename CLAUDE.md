@@ -95,3 +95,4 @@ Uses OpenRouter with GPT to review all Swift files. Project-specific bug classes
 - Unbounded external transcripts (Codex rollouts reach 1.5 GB) must be parsed with byte/message caps and a visible truncation notice — never read whole into memory.
 - Any change to version/provenance handling must keep `CFBundleVersion` monotonic (commit count) and keep the bundle's `CCCBuild*` stamps in step — an app that cannot say which build it is wastes a test cycle every time.
 - Sentry must not initialise under XCTest: test-host layout and deliberate waits are not customer app hangs.
+- `build.sh --debug` must deep-sign the app bundle after stamping so the main executable and its companion `*.debug.dylib` have the same Team ID; otherwise dyld aborts before the window appears.

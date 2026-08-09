@@ -27,6 +27,8 @@ None. The app uses only macOS system frameworks:
 | `AgentMessageBuilder` | Transcodes other agents' records into the Claude-shaped record every renderer already reads |
 | `AgentKind` / `ProjectPathEncoder` | Agent identity, per-agent switches, and `cwd` → `-Users-dan-Code-Foo` project folder encoding |
 
+Project selection loads filesystem-backed Claude sessions first. Indexed Codex/Cursor sessions are an asynchronous enrichment step and cannot replace the filesystem result when the SQLite lookup is slow or empty.
+
 ## Data Locations
 
 | Path | Purpose |

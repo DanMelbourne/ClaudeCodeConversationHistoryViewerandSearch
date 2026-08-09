@@ -375,37 +375,64 @@ final class AppViewModel {
         let allPaths = project.allPaths
         let store = self.store
 
-        loadSessionsTask = Task.detached(priority: .userInitiated) { [weak self] in
-            var loadedSessions = Self.enumerateSessions(projectId: projectId, paths: allPaths)
-            if let store {
-                let agentSessions = (try? await store.sessions(
-                    projectPaths: allPaths.map(\.path),
-                    agents: Self.secondaryAgents
-                )) ?? []
-                // Sessions come back keyed by the index's project path; retag
-                // them with the sidebar project id so selection matches.
-                loadedSessions.append(contentsOf: agentSessions.map { session in
-                    ConversationSession(
-                        id: session.id,
-                        projectId: projectId,
-                        filePath: session.filePath,
-                        firstUserMessage: session.firstUserMessage,
-                        timestamp: session.timestamp,
-                        messageCount: session.messageCount,
-                        isSubagent: session.isSubagent,
-                        agent: session.agent,
-                        title: session.title
-                    )
-                })
-                loadedSessions.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
-            }
+        loadSessionsTask = Task { @MainActor [weak self] in
+            // The filesystem is the canonical source for Claude sessions and
+            // is cheap to enumerate compared with querying the large index.
+            // Publish it first so a slow optional agent lookup cannot make the
+            // project appear empty.
+            let filesystemSessions = await Task.detached(priority: .userInitiated) {
+                Self.enumerateSessions(projectId: projectId, paths: allPaths)
+            }.value
+
+            guard !Task.isCancelled, let self else { return }
+            self.sessions = filesystemSessions
+            self.isLoadingSessions = false
+
+            guard let store, !Self.secondaryAgents.isEmpty else { return }
+
+            // Codex/Cursor sessions live in the index rather than in the
+            // selected project's filesystem folder. Enrich the already-visible
+            // list asynchronously; failures leave the Claude sessions intact.
+            let agentSessions = (try? await store.sessions(
+                projectPaths: allPaths.map(\.path),
+                agents: Self.secondaryAgents
+            )) ?? []
+
             guard !Task.isCancelled else { return }
-            await MainActor.run { [weak self] in
-                guard let self, !Task.isCancelled else { return }
-                self.sessions = loadedSessions
-                self.isLoadingSessions = false
-            }
+            self.sessions = Self.mergeSessions(
+                projectId: projectId,
+                filesystemSessions: filesystemSessions,
+                indexedAgentSessions: agentSessions
+            )
         }
+    }
+
+    /// Merge indexed agent sessions into the sessions already discovered on
+    /// disk. The filesystem list is the baseline and is never replaced by an
+    /// empty or failed enrichment result.
+    nonisolated static func mergeSessions(
+        projectId: String,
+        filesystemSessions: [ConversationSession],
+        indexedAgentSessions: [ConversationSession]
+    ) -> [ConversationSession] {
+        let retaggedAgentSessions = indexedAgentSessions.map { session in
+            ConversationSession(
+                id: session.id,
+                projectId: projectId,
+                filePath: session.filePath,
+                firstUserMessage: session.firstUserMessage,
+                timestamp: session.timestamp,
+                messageCount: session.messageCount,
+                isSubagent: session.isSubagent,
+                agent: session.agent,
+                title: session.title
+            )
+        }
+
+        var seen = Set<String>()
+        return (filesystemSessions + retaggedAgentSessions)
+            .filter { seen.insert("\($0.agent.rawValue):\($0.id)").inserted }
+            .sorted { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
     }
 
     /// Enumerate sessions on a background thread. No main-thread file I/O.

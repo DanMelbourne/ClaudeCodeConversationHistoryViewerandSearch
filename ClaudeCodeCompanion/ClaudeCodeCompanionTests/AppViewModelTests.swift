@@ -3,6 +3,62 @@ import XCTest
 
 @MainActor
 final class AppViewModelTests: XCTestCase {
+    func testMergingIndexedSessionsNeverHidesFilesystemSessions() {
+        let filesystemSession = ConversationSession(
+            id: "claude-session",
+            projectId: "-Users-dan-Code-ScreenshotTray",
+            filePath: URL(fileURLWithPath: "/tmp/claude-session.jsonl"),
+            firstUserMessage: "Existing Claude conversation",
+            timestamp: Date(timeIntervalSince1970: 2),
+            messageCount: 12,
+            isSubagent: false
+        )
+
+        let merged = AppViewModel.mergeSessions(
+            projectId: "-Users-dan-Code-ScreenshotTray",
+            filesystemSessions: [filesystemSession],
+            indexedAgentSessions: []
+        )
+
+        XCTAssertEqual(merged.map(\.id), ["claude-session"])
+        XCTAssertEqual(merged.first?.firstUserMessage, "Existing Claude conversation")
+    }
+
+    func testMergingIndexedSessionsRetagsAndSortsAgentSessions() {
+        let filesystemSession = ConversationSession(
+            id: "claude-session",
+            projectId: "-Users-dan-Code-ScreenshotTray",
+            filePath: URL(fileURLWithPath: "/tmp/claude-session.jsonl"),
+            firstUserMessage: "Claude",
+            timestamp: Date(timeIntervalSince1970: 1),
+            messageCount: 2,
+            isSubagent: false
+        )
+        let indexedSession = ConversationSession(
+            id: "codex-session",
+            projectId: "database-project-path",
+            filePath: URL(fileURLWithPath: "/tmp/rollout.jsonl"),
+            firstUserMessage: "Codex",
+            timestamp: Date(timeIntervalSince1970: 3),
+            messageCount: 4,
+            isSubagent: false,
+            agent: .codex
+        )
+
+        let merged = AppViewModel.mergeSessions(
+            projectId: "-Users-dan-Code-ScreenshotTray",
+            filesystemSessions: [filesystemSession],
+            indexedAgentSessions: [indexedSession]
+        )
+
+        XCTAssertEqual(merged.map(\.id), ["codex-session", "claude-session"])
+        XCTAssertEqual(merged.map(\.projectId), [
+            "-Users-dan-Code-ScreenshotTray",
+            "-Users-dan-Code-ScreenshotTray"
+        ])
+        XCTAssertEqual(merged.map(\.agent), [.codex, .claude])
+    }
+
     func testCachedReconstructionIncludesOnlyInteractiveMessages() {
         let timestamp = Date(timeIntervalSince1970: 1_000)
         let messages = [

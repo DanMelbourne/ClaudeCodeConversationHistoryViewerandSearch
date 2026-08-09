@@ -38,6 +38,7 @@
 - [x] Performance audit and fixes (all file I/O off main thread)
 
 ### Up Next
+- [x] Fix project selection showing an empty sessions column while indexed agent enrichment is slow
 - [ ] Add keyboard shortcuts (Cmd+G, Cmd+Shift+G for search navigation)
 - [ ] Test CLAUDE.md editor auto-save
 - [ ] Add unit tests for JSONLParser and DatabaseManager

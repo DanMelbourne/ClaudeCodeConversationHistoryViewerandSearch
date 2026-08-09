@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased — 2026-08-09
+
+- Fixed project selection leaving the sessions column empty while the large SQLite index looked up Codex and Cursor sessions. Claude JSONL sessions now appear as soon as the filesystem scan completes, with other-agent sessions merged afterward.
+- Fixed `build.sh --debug` producing an app that dyld rejected because its main executable and companion debug dylib had different signatures.
+
 ## Build 10 — 2026-08-04
 
 - Added `build.sh`: derives the build number from the git commit count (always forward, identical for repeat builds of one commit), installs to `/Applications`, stamps the bundle with build date, source branch/commit and an uncommitted-changes flag, re-signs, then verifies the installed version, provenance and that the binary is newer than the sources.

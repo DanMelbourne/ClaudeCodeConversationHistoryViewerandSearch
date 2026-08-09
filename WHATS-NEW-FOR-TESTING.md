@@ -1,5 +1,12 @@
 # What's New for Testing
 
+## Project selection loading — 2026-08-09
+
+- [x] Automated: filesystem sessions remain in the list when indexed agent enrichment is empty; indexed sessions are retagged to the selected project and sorted without replacing the filesystem list.
+- [x] Automated: the build-script checks require deep signing for nested debug dylibs.
+- [x] Verified live: built and launched the installed Debug app, clicked `ScreenshotTray` in the Projects sidebar, and read back the accessibility tree showing the selected project and populated Claude session rows.
+- [x] Verified live: after the `ScreenshotTray` click, the selected project remained current and its session list stayed populated while optional agent enrichment ran.
+
 ## Version numbering and build stamp — 2026-08-04
 
 - [x] Automated: `BuildInfo` reads the stamped keys, reports "just now / N min / hours / yesterday / N days / on <date>", says "in the future" on clock skew, and reports an unstamped (Xcode-IDE) build as having no build age rather than inventing one.

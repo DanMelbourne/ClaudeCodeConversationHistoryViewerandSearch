@@ -1,5 +1,9 @@
 # Design Decisions
 
+## 2026-08-09: Show filesystem sessions before indexed-agent enrichment
+**Decision**: Loading a selected project publishes sessions discovered from its Claude JSONL folders as soon as that filesystem pass completes. Codex/Cursor sessions from the SQLite index are fetched afterward and merged into the visible list; they must never gate the initial Claude session list or reset it when the indexed lookup returns no rows.
+**Rationale**: The index can contain roughly a million messages, and a project query spanning many worktrees can take materially longer than reading the project's JSONL directory. The user can browse the conversations that are already available while optional cross-agent enrichment catches up, instead of seeing an empty or indefinitely spinning sessions column.
+
 ## 2026-08-04: Build number is the git commit count; the app wears its build stamp
 **Decision**: `build.sh` and `dist.sh` set `CFBundleVersion` to `git rev-list --count HEAD` (floored at 1) and `CFBundleShortVersionString` to `MAJOR.MINOR.<count>` from Info.plist, passing both to `xcodebuild` as `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION` because `GENERATE_INFOPLIST_FILE` makes the build settings win over the plist file. Each build stamps `CCCBuildDate`, `CCCBuildSourceBranch`, `CCCBuildSourceCommit`, `CCCBuildDirty` and `CCCBuildConfiguration` into the installed bundle, re-signs, and the sidebar footer reads them back.
 **Rationale**: Adapted from ScreenshotTray, which learned that a plist-incrementing scheme sticks whenever the bump is never committed. A commit-count version needs no commit of its own, is identical for repeated builds of one commit, and cannot regress. The visible stamp answers the actual question — "is this window the build I just made?" — which a version number alone does not, since the number only changes when the commit does.
