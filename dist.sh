@@ -29,9 +29,11 @@ NOTARY_PROFILE="${NOTARY_PROFILE:-claude-code-companion-notarize}"
 # commit count, so it always moves forward and two builds of one commit agree.
 ./scripts/verify-build-base.sh "$PWD"
 
-COMMIT_COUNT="$(git rev-list --count HEAD 2>/dev/null || echo 0)"
-BUILD="$COMMIT_COUNT"
-[ "$BUILD" -lt 1 ] && BUILD=1
+# Shared with build.sh so a release can never carry a lower build number than
+# the development build it replaces.
+# shellcheck source=scripts/build-number.sh
+. ./scripts/build-number.sh
+BUILD="$(compute_build_number "$PWD")"
 CURRENT_VER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$INFO_PLIST")"
 VERSION="$(printf '%s' "$CURRENT_VER" | cut -d. -f1-2).$BUILD"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$INFO_PLIST"

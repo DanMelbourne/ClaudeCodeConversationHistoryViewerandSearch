@@ -50,15 +50,15 @@ BUILD_DATE="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 
 # ------------------------------------------------------------------ version
 #
-# CFBundleVersion must only ever increase. Deriving it from the commit count
-# means repeated builds of the same commit produce the same number, no commit
-# of its own is needed, and a history rewrite cannot regress it below the
-# floor. MAJOR.MINOR comes from Info.plist — bump that by hand for a release.
+# CFBundleVersion must only ever increase. It comes from the commit count plus
+# an offset, so repeated builds of one commit agree, no commit of its own is
+# needed, and a history rewrite cannot regress it. The arithmetic lives in
+# scripts/build-number.sh so dist.sh cannot drift from this.
+# MAJOR.MINOR comes from Info.plist — bump that by hand for a release.
 
-COMMIT_COUNT="$(git rev-list --count HEAD 2>/dev/null || echo 0)"
-VERSION_FLOOR=1
-NEW_BUILD="$COMMIT_COUNT"
-[ "$NEW_BUILD" -lt "$VERSION_FLOOR" ] && NEW_BUILD="$VERSION_FLOOR"
+# shellcheck source=scripts/build-number.sh
+. "$(dirname "$0")/scripts/build-number.sh"
+NEW_BUILD="$(compute_build_number "$(dirname "$0")")"
 
 CURRENT_VER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$INFO_PLIST")"
 MAJOR_MINOR="$(printf '%s' "$CURRENT_VER" | cut -d. -f1-2)"
