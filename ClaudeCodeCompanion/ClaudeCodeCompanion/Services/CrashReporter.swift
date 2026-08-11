@@ -13,6 +13,10 @@ enum CrashReporter {
     private static var isInitialised = false
 
     static func configure(enabled: Bool) {
+        guard !isRunningUnitTests() else {
+            print("[CrashReporter] Sentry disabled in XCTest")
+            return
+        }
         guard enabled else {
             if isInitialised {
                 SentrySDK.close()
@@ -71,6 +75,11 @@ enum CrashReporter {
     }
 
     // MARK: - Helpers
+
+    nonisolated static func isRunningUnitTests(environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
+        environment["XCTestConfigurationFilePath"] != nil
+            || environment["XCTestBundlePath"] != nil
+    }
 
     private static func resolveDSN() -> String? {
         if let envDSN = ProcessInfo.processInfo.environment["SENTRY_DSN"], !envDSN.isEmpty {

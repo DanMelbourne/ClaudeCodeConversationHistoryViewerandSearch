@@ -1,0 +1,18 @@
+# macOS
+.DS_Store
+
+# Build output — dist.sh regenerates all of this, and the archive contains
+# signed binaries and a DMG that must never live in git history.
+dist/
+build/
+DerivedData/
+
+# Xcode
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+
+# Local tooling indexes
+.codegraph/
+.swiftpm/

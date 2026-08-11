@@ -2,29 +2,29 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>CFBundleName</key>
-	<string>Claude Code Companion</string>
 	<key>CFBundleDisplayName</key>
 	<string>Claude Code Companion</string>
-	<key>CFBundleIdentifier</key>
-	<string>com.danwarnemail.ClaudeCodeCompanion</string>
-	<key>CFBundleVersion</key>
-	<string>1</string>
-	<key>CFBundleShortVersionString</key>
-	<string>1.0.0</string>
-	<key>CFBundlePackageType</key>
-	<string>APPL</string>
 	<key>CFBundleExecutable</key>
 	<string>ClaudeCodeCompanion</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.danwarnemail.ClaudeCodeCompanion</string>
+	<key>CFBundleName</key>
+	<string>Claude Code Companion</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0.7</string>
+	<key>CFBundleVersion</key>
+	<string>7</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.developer-tools</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2026 Dan Warne. All rights reserved.</string>
-	<key>LSApplicationCategoryType</key>
-	<string>public.app-category.developer-tools</string>
-	<key>com.apple.security.app-sandbox</key>
-	<false/>
 	<key>SentryDSN</key>
 	<string>https://2adc037e75d09838edc32e430f97fa73@o4511466343825408.ingest.us.sentry.io/4511487552978944</string>
+	<key>com.apple.security.app-sandbox</key>
+	<false/>
 </dict>
 </plist>

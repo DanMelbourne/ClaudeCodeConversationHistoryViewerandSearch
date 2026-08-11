@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import Observation
 
@@ -47,6 +48,11 @@ final class AppViewModel {
     var messages: [ParsedMessage] = []
     var isLoadingSessions: Bool = false
     var isLoadingMessages: Bool = false
+    var exportErrorMessage: String?
+    var navigationErrorMessage: String?
+    var unavailableSearchResult: SearchResult?
+    var cachedConversationSessionID: String?
+    var cachedConversationNotice: String?
 
     // MARK: - Search
 
@@ -75,10 +81,43 @@ final class AppViewModel {
     var externalSources: [ConversationSource] = []
     var showSourcesManager: Bool = false
 
+    // MARK: - Agents
+
+    /// Mirrors the persisted per-agent switches so SwiftUI can observe them.
+    var enabledAgents: Set<AgentKind> = Set(AgentKind.allCases.filter { AgentKind.isEnabled($0) })
+
+    @MainActor
+    func setAgent(_ agent: AgentKind, enabled: Bool) {
+        guard agent != .claude else { return }
+        AgentKind.setEnabled(enabled, for: agent)
+        if enabled { enabledAgents.insert(agent) } else { enabledAgents.remove(agent) }
+        configureFileWatchers()
+        Task { @MainActor in await reindexAgents() }
+    }
+
+    /// Re-read Codex and Cursor history and refresh the project list.
+    @MainActor
+    func reindexAgents() async {
+        guard let store else { return }
+        isIndexing = true
+        indexingStatus = "Updating Codex and Cursor history…"
+        do {
+            try await store.indexOtherAgents()
+        } catch {
+            indexingStatus = "Could not read other agents' history"
+        }
+        isIndexing = false
+        indexingStatus = ""
+        loadProjects()
+    }
+
     // MARK: - Debounce
 
     @ObservationIgnored private var searchDebounceTask: Task<Void, Never>?
     @ObservationIgnored private var navigateTask: Task<Void, Never>?
+    @ObservationIgnored private var fileWatchers: [FileWatcher] = []
+    @ObservationIgnored private var watcherRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var watcherRefreshGeneration = UUID()
 
     /// When true, the sidebar's onChange(of: selectedProject) should NOT reset
     /// the session or reload sessions — navigateToSearchResult handles it.
@@ -134,6 +173,7 @@ final class AppViewModel {
         isIndexing = false
         indexingStatus = ""
         loadProjects() // reload to include external source projects
+        configureFileWatchers()
     }
 
     // MARK: - Project Loading
@@ -160,12 +200,71 @@ final class AppViewModel {
             return
         }
 
+        let store = self.store
         Task.detached(priority: .userInitiated) { [allDirectories] in
             let loadedProjects = Self.enumerateProjects(in: allDirectories)
+            var agentProjects: [Project] = []
+            if let store {
+                agentProjects = (try? await store.projects(agents: Self.secondaryAgents)) ?? []
+            }
+            let merged = Self.merge(agentProjects: agentProjects, into: loadedProjects)
             await MainActor.run { [weak self] in
-                self?.projects = loadedProjects
+                self?.projects = merged
             }
         }
+    }
+
+    /// Agents whose history lives outside `~/.claude/projects` and therefore
+    /// comes from the index rather than the filesystem walk.
+    static var secondaryAgents: Set<AgentKind> {
+        Set(AgentKind.allCases.filter { $0 != .claude && AgentKind.isEnabled($0) })
+    }
+
+    /// Fold Codex/Cursor projects into the Claude project list, merging any
+    /// that point at the same working directory so one row shows every agent.
+    nonisolated static func merge(agentProjects: [Project], into fileProjects: [Project]) -> [Project] {
+        // Worktree folders belong to their parent project, exactly as the
+        // filesystem walk already merges them.
+        func baseName(_ folder: String) -> String {
+            guard let range = folder.range(of: "--claude-worktrees-") else { return folder }
+            return String(folder[..<range.lowerBound])
+        }
+
+        var byFolderName: [String: Project] = [:]
+        var order: [String] = []
+
+        for project in fileProjects {
+            let key = baseName(project.path.lastPathComponent)
+            byFolderName[key] = project
+            order.append(key)
+        }
+
+        for project in agentProjects {
+            let key = baseName(project.path.lastPathComponent)
+            if var existing = byFolderName[key] {
+                existing.sessionCount += project.sessionCount
+                existing.agents.formUnion(project.agents)
+                existing.workingDirectory = existing.workingDirectory ?? project.workingDirectory
+                let dates = [existing.lastActivityDate, project.lastActivityDate].compactMap { $0 }
+                existing.lastActivityDate = dates.max()
+                byFolderName[key] = existing
+            } else {
+                byFolderName[key] = Project(
+                    id: key,
+                    displayName: ConversationStore.deriveProjectName(from: key),
+                    path: project.path.deletingLastPathComponent().appendingPathComponent(key),
+                    additionalPaths: [],
+                    sessionCount: project.sessionCount,
+                    lastActivityDate: project.lastActivityDate,
+                    agents: project.agents,
+                    workingDirectory: project.workingDirectory
+                )
+                order.append(key)
+            }
+        }
+
+        return order.compactMap { byFolderName[$0] }
+            .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
     }
 
     /// Enumerate project folders on a background thread. Pure function, no main-thread dependency.
@@ -274,16 +373,66 @@ final class AppViewModel {
 
         let projectId = project.id
         let allPaths = project.allPaths
+        let store = self.store
 
-        loadSessionsTask = Task.detached(priority: .userInitiated) { [weak self] in
-            let loadedSessions = Self.enumerateSessions(projectId: projectId, paths: allPaths)
+        loadSessionsTask = Task { @MainActor [weak self] in
+            // The filesystem is the canonical source for Claude sessions and
+            // is cheap to enumerate compared with querying the large index.
+            // Publish it first so a slow optional agent lookup cannot make the
+            // project appear empty.
+            let filesystemSessions = await Task.detached(priority: .userInitiated) {
+                Self.enumerateSessions(projectId: projectId, paths: allPaths)
+            }.value
+
+            guard !Task.isCancelled, let self else { return }
+            self.sessions = filesystemSessions
+            self.isLoadingSessions = false
+
+            guard let store, !Self.secondaryAgents.isEmpty else { return }
+
+            // Codex/Cursor sessions live in the index rather than in the
+            // selected project's filesystem folder. Enrich the already-visible
+            // list asynchronously; failures leave the Claude sessions intact.
+            let agentSessions = (try? await store.sessions(
+                projectPaths: allPaths.map(\.path),
+                agents: Self.secondaryAgents
+            )) ?? []
+
             guard !Task.isCancelled else { return }
-            await MainActor.run { [weak self] in
-                guard let self, !Task.isCancelled else { return }
-                self.sessions = loadedSessions
-                self.isLoadingSessions = false
-            }
+            self.sessions = Self.mergeSessions(
+                projectId: projectId,
+                filesystemSessions: filesystemSessions,
+                indexedAgentSessions: agentSessions
+            )
         }
+    }
+
+    /// Merge indexed agent sessions into the sessions already discovered on
+    /// disk. The filesystem list is the baseline and is never replaced by an
+    /// empty or failed enrichment result.
+    nonisolated static func mergeSessions(
+        projectId: String,
+        filesystemSessions: [ConversationSession],
+        indexedAgentSessions: [ConversationSession]
+    ) -> [ConversationSession] {
+        let retaggedAgentSessions = indexedAgentSessions.map { session in
+            ConversationSession(
+                id: session.id,
+                projectId: projectId,
+                filePath: session.filePath,
+                firstUserMessage: session.firstUserMessage,
+                timestamp: session.timestamp,
+                messageCount: session.messageCount,
+                isSubagent: session.isSubagent,
+                agent: session.agent,
+                title: session.title
+            )
+        }
+
+        var seen = Set<String>()
+        return (filesystemSessions + retaggedAgentSessions)
+            .filter { seen.insert("\($0.agent.rawValue):\($0.id)").inserted }
+            .sorted { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
     }
 
     /// Enumerate sessions on a background thread. No main-thread file I/O.
@@ -333,22 +482,130 @@ final class AppViewModel {
         loadMessagesTask?.cancel()
         navigateTask?.cancel()
 
-        guard FileManager.default.fileExists(atPath: session.filePath.path) else {
+        guard session.id != cachedConversationSessionID else {
+            isLoadingMessages = false
+            detailDestination = .conversation
+            return
+        }
+
+        cachedConversationSessionID = nil
+        cachedConversationNotice = nil
+
+        // Cursor keeps its history in a database, so only file-backed agents
+        // are checked for a missing transcript.
+        if session.agent != .cursor,
+           !FileManager.default.fileExists(atPath: session.filePath.path) {
             messages = []
             return
         }
 
         isLoadingMessages = true
         let filePath = session.filePath
+        let agent = session.agent
+        let sessionId = session.id
 
         loadMessagesTask = Task.detached(priority: .userInitiated) { [weak self] in
-            let parsed = Self.parseMessagesStreaming(from: filePath)
+            let parsed = Self.parseMessages(agent: agent, filePath: filePath, sessionId: sessionId)
             guard !Task.isCancelled else { return }
             await MainActor.run { [weak self] in
                 guard let self, !Task.isCancelled else { return }
                 self.messages = parsed
                 self.isLoadingMessages = false
             }
+        }
+    }
+
+    // MARK: - Conversation Export
+
+    @MainActor
+    func presentSelectedProjectExportSavePanel() {
+        guard let project = selectedProject else { return }
+
+        let panel = NSSavePanel()
+        panel.title = "Export Project Conversations"
+        panel.nameFieldStringValue = "\(project.displayName) Conversation History.txt"
+        panel.allowedContentTypes = [.plainText]
+        panel.canCreateDirectories = true
+        panel.isExtensionHidden = false
+
+        let complete: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard response == .OK, let destination = panel.url else { return }
+            self?.exportProjectConversations(for: project, to: destination)
+        }
+
+        guard let window = presentationWindow else {
+            exportErrorMessage = "Open the main window, then choose Export Project Conversations again."
+            return
+        }
+        panel.beginSheetModal(for: window, completionHandler: complete)
+    }
+
+    @MainActor
+    func exportProjectConversations(for project: Project, to destination: URL) {
+        Task.detached(priority: .userInitiated) { [weak self] in
+            do {
+                let result = try ConversationExportService.exportProjectConversations(
+                    from: project,
+                    to: destination
+                )
+                await MainActor.run { [weak self] in
+                    self?.presentExportCompleteAlert(result: result, destination: destination)
+                }
+            } catch {
+                await MainActor.run {
+                    self?.exportErrorMessage = "The history could not be exported. Choose another location and try again."
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func presentExportCompleteAlert(
+        result: ConversationExportService.ExportResult,
+        destination: URL
+    ) {
+        let alert = NSAlert()
+        alert.messageText = "Export Complete"
+        alert.informativeText = "Exported \(result.messageCount) chat messages from \(result.conversationCount) conversations to \(destination.lastPathComponent)."
+        alert.addButton(withTitle: "Show in Finder")
+        alert.addButton(withTitle: "OK")
+
+        let complete: (NSApplication.ModalResponse) -> Void = { response in
+            if response == .alertFirstButtonReturn {
+                NSWorkspace.shared.activateFileViewerSelecting([destination])
+            }
+        }
+        guard let window = presentationWindow else { return }
+        alert.beginSheetModal(for: window, completionHandler: complete)
+    }
+
+    /// Load one session's messages from whichever agent produced it.
+    nonisolated static func parseMessages(agent: AgentKind, filePath: URL, sessionId: String) -> [ParsedMessage] {
+        switch agent {
+        case .claude:
+            return parseMessagesStreaming(from: filePath)
+        case .codex:
+            guard let session = CodexHistoryProvider.parseSession(at: filePath) else { return [] }
+            return parsedMessages(from: session.messages)
+        case .cursor:
+            guard let conversation = CursorHistoryProvider.conversations().first(where: { $0.id == sessionId })
+            else { return [] }
+            return parsedMessages(from: CursorHistoryProvider.messages(for: conversation))
+        }
+    }
+
+    /// Convert transcoded agent messages into the renderer's block form.
+    nonisolated static func parsedMessages(from messages: [ConversationMessage]) -> [ParsedMessage] {
+        messages.compactMap { message in
+            let blocks = JSONLParser.parseContentBlocks(from: message.contentRaw)
+            guard !blocks.isEmpty else { return nil }
+            return ParsedMessage(
+                id: message.id,
+                type: message.type,
+                timestamp: message.timestamp,
+                blocks: blocks,
+                rawJSON: message.contentRaw
+            )
         }
     }
 
@@ -442,18 +699,19 @@ final class AppViewModel {
                     currentSearchResultIndex = 0
                     return
                 }
-                // Search across all paths (base + worktrees) for this project
-                var combined: [SearchResult] = []
-                for folderURL in project.allPaths {
-                    let results = try await store.db.search(
-                        query: searchText,
-                        projectPath: folderURL.path,
-                        sessionId: nil,
-                        limit: 500
-                    )
-                    combined.append(contentsOf: results)
-                }
-                searchResults = combined
+                // Match the project's base folder AND all its worktrees (incl. ones
+                // deleted from disk) via a single base-path query.
+                let basePath = project.path
+                    .deletingLastPathComponent()
+                    .appendingPathComponent(project.id)
+                    .path
+                let results = try await store.db.search(
+                    query: searchText,
+                    projectBasePath: basePath,
+                    sessionId: nil,
+                    limit: 500
+                )
+                searchResults = results
 
             case .currentChat:
                 let results = try await store.db.search(
@@ -521,15 +779,18 @@ final class AppViewModel {
 
         // Prevent the sidebar's onChange from resetting session/destination
         isNavigatingFromSearch = true
-        selectedProject = project
-        detailDestination = .conversation
         isLoadingSessions = true
         isLoadingMessages = true
+        navigationErrorMessage = nil
+        unavailableSearchResult = nil
+        cachedConversationSessionID = nil
+        cachedConversationNotice = nil
 
         let projectId = project.id
         let allPaths = project.allPaths
         let sessionId = result.sessionId
         let targetUuid = result.messageUuid
+        let store = self.store
 
         // Load sessions and messages in background, then navigate.
         // Assign to tracked tasks so future calls can cancel this one.
@@ -543,7 +804,30 @@ final class AppViewModel {
                 }
             }
 
-            let loadedSessions = Self.enumerateSessions(projectId: projectId, paths: allPaths)
+            var loadedSessions = Self.enumerateSessions(projectId: projectId, paths: allPaths)
+
+            // Codex and Cursor sessions are not files under the project folder,
+            // so they come from the index alongside the Claude transcripts.
+            if let store {
+                let agentSessions = (try? await store.sessions(
+                    projectPaths: allPaths.map(\.path),
+                    agents: Self.secondaryAgents
+                )) ?? []
+                loadedSessions.append(contentsOf: agentSessions.map { session in
+                    ConversationSession(
+                        id: session.id,
+                        projectId: projectId,
+                        filePath: session.filePath,
+                        firstUserMessage: session.firstUserMessage,
+                        timestamp: session.timestamp,
+                        messageCount: session.messageCount,
+                        isSubagent: session.isSubagent,
+                        agent: session.agent,
+                        title: session.title
+                    )
+                })
+                loadedSessions.sort { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+            }
 
             var session = loadedSessions.first(where: { $0.id == sessionId })
 
@@ -577,16 +861,30 @@ final class AppViewModel {
                 }
             }
 
-            guard let session else { return }
+            guard let session else {
+                await MainActor.run { [weak self] in
+                    guard let self, !Task.isCancelled else { return }
+                    self.navigationErrorMessage = "The original conversation file is no longer available on disk."
+                    self.unavailableSearchResult = result
+                    self.detailDestination = .searchResults
+                }
+                return
+            }
             guard !Task.isCancelled else { return }
-            let parsed = Self.parseMessagesStreaming(from: session.filePath)
+            let parsed = Self.parseMessages(
+                agent: session.agent,
+                filePath: session.filePath,
+                sessionId: session.id
+            )
             guard !Task.isCancelled else { return }
 
             await MainActor.run { [weak self] in
                 guard let self, !Task.isCancelled else { return }
+                self.selectedProject = project
                 self.sessions = loadedSessions
                 self.selectedSession = session
                 self.messages = parsed
+                self.detailDestination = .conversation
             }
 
             // Small delay for scroll view to render
@@ -596,6 +894,90 @@ final class AppViewModel {
             }
         }
         navigateTask = task
+    }
+
+    @MainActor
+    func viewCachedConversation() {
+        guard let result = unavailableSearchResult,
+              let project = projects.first(where: { $0.ownsPath(result.projectPath) }),
+              let store else {
+            navigationErrorMessage = "The cached copy is no longer available."
+            return
+        }
+
+        navigationErrorMessage = nil
+        isNavigatingFromSearch = true
+        isLoadingSessions = true
+        isLoadingMessages = true
+
+        let cachedSession = ConversationSession(
+            id: result.sessionId,
+            projectId: project.id,
+            filePath: project.path.appendingPathComponent("\(result.sessionId).jsonl"),
+            firstUserMessage: "Cached copy — original JSONL unavailable",
+            timestamp: result.timestamp,
+            messageCount: 0,
+            isSubagent: false
+        )
+        let projectId = project.id
+        let allPaths = project.allPaths
+
+        Task { @MainActor [weak self] in
+            defer {
+                self?.isNavigatingFromSearch = false
+                self?.isLoadingSessions = false
+                self?.isLoadingMessages = false
+            }
+
+            do {
+                let cachedMessages = try await store.loadConversation(for: cachedSession)
+                let reconstructedMessages = Self.cachedParsedMessages(from: cachedMessages)
+                guard !reconstructedMessages.isEmpty else {
+                    self?.navigationErrorMessage = "The cached copy contains no user or Claude messages."
+                    self?.detailDestination = .searchResults
+                    return
+                }
+
+                let diskSessions = await Task.detached(priority: .userInitiated) {
+                    Self.enumerateSessions(projectId: projectId, paths: allPaths)
+                }.value
+                guard let self else { return }
+
+                let recoveredSession = ConversationSession(
+                    id: cachedSession.id,
+                    projectId: cachedSession.projectId,
+                    filePath: cachedSession.filePath,
+                    firstUserMessage: cachedSession.firstUserMessage,
+                    timestamp: cachedSession.timestamp,
+                    messageCount: reconstructedMessages.count,
+                    isSubagent: cachedSession.isSubagent
+                )
+                self.selectedProject = project
+                self.sessions = [recoveredSession] + diskSessions
+                self.messages = reconstructedMessages
+                self.cachedConversationSessionID = recoveredSession.id
+                self.cachedConversationNotice = "Cached copy — original JSONL unavailable"
+                self.selectedSession = recoveredSession
+                self.unavailableSearchResult = nil
+                self.detailDestination = .conversation
+            } catch {
+                self?.navigationErrorMessage = "The cached copy could not be loaded. Try searching again."
+                self?.detailDestination = .searchResults
+            }
+        }
+    }
+
+    nonisolated static func cachedParsedMessages(from messages: [ConversationMessage]) -> [ParsedMessage] {
+        messages.compactMap { message in
+            guard message.type == .user || message.type == .assistant else { return nil }
+            return ParsedMessage(
+                id: message.id,
+                type: message.type,
+                timestamp: message.timestamp,
+                blocks: JSONLParser.parseContentBlocks(from: message.contentRaw),
+                rawJSON: message.contentRaw
+            )
+        }
     }
 
 
@@ -681,6 +1063,7 @@ final class AppViewModel {
         Task {
             await reindexSource(source)
         }
+        configureFileWatchers()
     }
 
     @MainActor
@@ -688,6 +1071,7 @@ final class AppViewModel {
         externalSources.removeAll { $0.id == id }
         ConversationSource.saveAll(externalSources)
         loadProjects()
+        configureFileWatchers()
     }
 
     @MainActor
@@ -696,6 +1080,7 @@ final class AppViewModel {
         externalSources[idx].isEnabled.toggle()
         ConversationSource.saveAll(externalSources)
         loadProjects()
+        configureFileWatchers()
     }
 
     @MainActor
@@ -731,7 +1116,92 @@ final class AppViewModel {
         }
     }
 
+    // MARK: - Live index updates
+
+    /// Directories that should keep the local cache current. Kept separate for
+    /// deterministic tests and to ensure duplicate source roots have one watcher.
+    nonisolated static func watcherPaths(
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        externalSources: [ConversationSource]
+    ) -> [URL] {
+        let localProjects = homeDirectory.appendingPathComponent(".claude/projects", isDirectory: true)
+        // Codex writes rollouts continuously, so it gets a watcher too. Cursor
+        // writes into one multi-gigabyte database that every keystroke touches;
+        // it refreshes on launch and on demand instead.
+        let codexSessions = AgentKind.isEnabled(.codex)
+            ? [homeDirectory.appendingPathComponent(".codex/sessions", isDirectory: true)]
+            : []
+        let paths = [localProjects] + codexSessions + externalSources
+            .filter { $0.isEnabled && $0.isAccessible }
+            .map { URL(fileURLWithPath: $0.path, isDirectory: true) }
+
+        var seen = Set<String>()
+        return paths.filter { seen.insert($0.standardizedFileURL.path).inserted }
+    }
+
+    @MainActor
+    private func configureFileWatchers() {
+        fileWatchers.forEach { $0.stop() }
+        fileWatchers = Self.watcherPaths(externalSources: externalSources).map { path in
+            FileWatcher(path: path) { [weak self] in
+                Task { @MainActor in
+                    self?.scheduleWatchedIndexRefresh()
+                }
+            }
+        }
+        fileWatchers.forEach { $0.start() }
+    }
+
+    @MainActor
+    private func scheduleWatchedIndexRefresh() {
+        watcherRefreshTask?.cancel()
+        let generation = UUID()
+        watcherRefreshGeneration = generation
+
+        watcherRefreshTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled,
+                  let self,
+                  self.watcherRefreshGeneration == generation else { return }
+
+            // Do not compete with an explicit or startup index. A later
+            // filesystem event will schedule the same mod-date-aware pass.
+            guard !self.isIndexing else { return }
+
+            self.isIndexing = true
+            self.indexingStatus = "Updating index…"
+            defer {
+                self.isIndexing = false
+                self.indexingStatus = ""
+                if self.watcherRefreshGeneration == generation {
+                    self.watcherRefreshTask = nil
+                }
+            }
+
+            guard let store = self.store else { return }
+            do {
+                try await store.performFullIndex()
+                for source in self.externalSources where source.isEnabled && source.isAccessible {
+                    try await store.indexDirectory(URL(fileURLWithPath: source.path))
+                    if let index = self.externalSources.firstIndex(where: { $0.id == source.id }) {
+                        self.externalSources[index].lastIndexed = Date()
+                    }
+                }
+                ConversationSource.saveAll(self.externalSources)
+                self.loadProjects()
+            } catch {
+                self.indexingStatus = "Index update failed"
+            }
+        }
+    }
+
     // MARK: - Private Helpers
+
+    private var presentationWindow: NSWindow? {
+        NSApp.keyWindow
+            ?? NSApp.mainWindow
+            ?? NSApp.windows.first(where: { $0.isVisible && $0.canBecomeKey })
+    }
 
     private func projectDisplayName(from folderName: String) -> String {
         return ConversationStore.deriveProjectName(from: folderName)
@@ -769,18 +1239,33 @@ final class AppViewModel {
     }
 
     /// Count newlines efficiently using raw byte scanning. Never converts entire file to String.
-    private nonisolated static func countLinesEfficient(in file: URL) -> Int {
+    ///
+    /// Scanning via `memchr` rather than a Swift `for byte in data` loop: a real
+    /// project folder (854 MB across 224 transcripts) took 10.9 s the old way
+    /// and 3.4 s this way, which is now bounded by disk throughput rather than
+    /// by per-byte iteration. This runs off the main actor, but it competes for
+    /// CPU with the main thread on every project selection.
+    nonisolated static func countLinesEfficient(in file: URL) -> Int {
         guard let handle = try? FileHandle(forReadingFrom: file) else { return 0 }
-        defer { handle.closeFile() }
+        defer { try? handle.close() }
 
         var count = 0
-        let newlineByte = UInt8(ascii: "\n")
-        let bufferSize = 65536
+        let bufferSize = 1 << 20 // 1 MB
 
         while true {
             guard let data = try? handle.read(upToCount: bufferSize), !data.isEmpty else { break }
-            for byte in data where byte == newlineByte {
-                count += 1
+            count += data.withUnsafeBytes { raw -> Int in
+                guard var cursor = raw.baseAddress else { return 0 }
+                var remaining = raw.count
+                var found = 0
+                while remaining > 0,
+                      let hit = memchr(cursor, Int32(UInt8(ascii: "\n")), remaining) {
+                    found += 1
+                    let consumed = UnsafeRawPointer(hit) - cursor + 1
+                    cursor = UnsafeRawPointer(hit) + 1
+                    remaining -= consumed
+                }
+                return found
             }
         }
         return count

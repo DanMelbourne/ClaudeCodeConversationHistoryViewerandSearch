@@ -5,6 +5,7 @@ struct ConversationView: View {
     @State private var localSearchText: String = ""
     @State private var localSearchResults: [String] = []  // message IDs that match
     @State private var localSearchIndex: Int = 0
+    @State private var localSearchTask: Task<Void, Never>?
     @FocusState private var localSearchFocused: Bool
 
     var body: some View {
@@ -27,6 +28,17 @@ struct ConversationView: View {
     private var conversationContent: some View {
         ScrollViewReader { proxy in
             VStack(spacing: 0) {
+                if let notice = appViewModel.cachedConversationNotice {
+                    Label(notice, systemImage: "internaldrive")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(.quaternary)
+                        .help("This reconstruction comes from the local SQLite search cache, not the original JSONL file.")
+                }
+
                 // Local find bar
                 if appViewModel.showConversationSearch {
                     localSearchBar(proxy: proxy)
@@ -34,23 +46,28 @@ struct ConversationView: View {
 
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(filteredMessages.enumerated()), id: \.element.id) { index, message in
-                            if shouldShowDateDivider(at: index) {
-                                DateDivider(date: message.timestamp)
+                        // `rows` is built once per body evaluation. Reading a
+                        // computed `filteredMessages` from inside the ForEach
+                        // body re-filtered the whole message array for every
+                        // visible row, which is O(n²) per render pass and is
+                        // one of the main-thread stalls Sentry reports.
+                        ForEach(rows, id: \.message.id) { row in
+                            if row.showsDateDivider {
+                                DateDivider(date: row.message.timestamp)
                                     .padding(.vertical, 8)
                             }
 
                             if appViewModel.viewMode == .raw {
-                                RawMessageView(message: message)
-                                    .id(message.id)
+                                RawMessageView(message: row.message)
+                                    .id(row.message.id)
                             } else {
                                 MessageView(
-                                    message: message,
+                                    message: row.message,
                                     showSystemMessages: appViewModel.showSystemMessages,
-                                    isHighlighted: appViewModel.scrollToMessageId == message.id,
+                                    isHighlighted: appViewModel.scrollToMessageId == row.message.id,
                                     highlightTerm: appViewModel.showConversationSearch ? localSearchText : nil
                                 )
-                                .id(message.id)
+                                .id(row.message.id)
                             }
                         }
                     }
@@ -110,9 +127,7 @@ struct ConversationView: View {
                 .focused($localSearchFocused)
                 .onSubmit { navigateLocalSearch(direction: 1, proxy: proxy) }
                 .onChange(of: localSearchText) { _, _ in
-                    performLocalSearch()
-                    if let first = localSearchResults.first {
-                        localSearchIndex = 0
+                    performLocalSearch { first in
                         withAnimation(.easeInOut(duration: 0.3)) {
                             proxy.scrollTo(first, anchor: .center)
                         }
@@ -160,7 +175,15 @@ struct ConversationView: View {
 
     // MARK: - Local Search Logic
 
-    private func performLocalSearch() {
+    /// Debounced and run off the main actor.
+    ///
+    /// Scanning every block of every message and lowercasing the result is
+    /// tens of megabytes of string work in a long transcript. Doing that
+    /// synchronously inside `onChange` blocked the main thread on every
+    /// keystroke.
+    private func performLocalSearch(then scroll: ((String) -> Void)? = nil) {
+        localSearchTask?.cancel()
+
         let query = localSearchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !query.isEmpty else {
             localSearchResults = []
@@ -168,19 +191,36 @@ struct ConversationView: View {
             return
         }
 
-        localSearchResults = filteredMessages.compactMap { message in
-            let text = message.blocks.compactMap { block -> String? in
-                switch block {
-                case .text(let s): return s
-                case .thinking(let s): return s
-                case .toolUse(let name, let input): return "\(name) \(input)"
-                case .toolResult(let s): return s
-                }
-            }.joined(separator: " ")
+        let messages = filteredMessages
+        localSearchTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled else { return }
 
-            return text.lowercased().contains(query) ? message.id : nil
+            let matches = await Task.detached(priority: .userInitiated) {
+                Self.matchingMessageIDs(in: messages, query: query)
+            }.value
+
+            guard !Task.isCancelled else { return }
+            localSearchResults = matches
+            localSearchIndex = 0
+            if let first = matches.first { scroll?(first) }
         }
-        localSearchIndex = 0
+    }
+
+    /// Pure and static so it runs off the main actor and is unit testable.
+    nonisolated static func matchingMessageIDs(in messages: [ParsedMessage], query: String) -> [String] {
+        messages.compactMap { message in
+            let matches = message.blocks.contains { block in
+                switch block {
+                case .text(let s), .thinking(let s), .toolResult(let s):
+                    return s.range(of: query, options: .caseInsensitive) != nil
+                case .toolUse(let name, let input):
+                    return name.range(of: query, options: .caseInsensitive) != nil
+                        || input.range(of: query, options: .caseInsensitive) != nil
+                }
+            }
+            return matches ? message.id : nil
+        }
     }
 
     private func navigateLocalSearch(direction: Int, proxy: ScrollViewProxy) {
@@ -194,6 +234,8 @@ struct ConversationView: View {
     }
 
     private func clearLocalSearch() {
+        localSearchTask?.cancel()
+        localSearchTask = nil
         localSearchText = ""
         localSearchResults = []
         localSearchIndex = 0
@@ -212,7 +254,15 @@ struct ConversationView: View {
         .help("Show or hide system messages")
     }
 
-    // MARK: - Filtered Messages
+    // MARK: - Rows
+
+    /// One rendered row: the message plus whether a date divider precedes it.
+    /// Divider placement is resolved here, in a single pass, so no row has to
+    /// reach back into the full message list to decide.
+    struct MessageRow {
+        let message: ParsedMessage
+        let showsDateDivider: Bool
+    }
 
     private var filteredMessages: [ParsedMessage] {
         if appViewModel.showSystemMessages {
@@ -221,13 +271,23 @@ struct ConversationView: View {
         return appViewModel.messages.filter { $0.type != .system }
     }
 
-    // MARK: - Date Divider Logic
+    private var rows: [MessageRow] {
+        Self.makeRows(from: filteredMessages)
+    }
 
-    private func shouldShowDateDivider(at index: Int) -> Bool {
-        guard index > 0 else { return false }
-        let current = filteredMessages[index].timestamp
-        let previous = filteredMessages[index - 1].timestamp
-        return current.timeIntervalSince(previous) > 1800 // 30 minutes
+    /// Pure and static so it can be unit tested without a view hierarchy.
+    static func makeRows(from messages: [ParsedMessage]) -> [MessageRow] {
+        var rows: [MessageRow] = []
+        rows.reserveCapacity(messages.count)
+        var previousTimestamp: Date?
+        for message in messages {
+            let showsDivider = previousTimestamp.map {
+                message.timestamp.timeIntervalSince($0) > 1800 // 30 minutes
+            } ?? false
+            rows.append(MessageRow(message: message, showsDateDivider: showsDivider))
+            previousTimestamp = message.timestamp
+        }
+        return rows
     }
 
     // MARK: - Empty States
@@ -279,17 +339,42 @@ private struct DateDivider: View {
     }
 
     private var formattedDate: String {
-        let formatter = DateFormatter()
         let calendar = Calendar.current
         if calendar.isDateInToday(date) {
-            formatter.dateFormat = "h:mm a"
-        } else if calendar.isDateInYesterday(date) {
-            formatter.dateFormat = "'Yesterday' h:mm a"
-        } else {
-            formatter.dateFormat = "MMM d, yyyy h:mm a"
+            return ConversationFormatters.time.string(from: date)
         }
-        return formatter.string(from: date)
+        if calendar.isDateInYesterday(date) {
+            return ConversationFormatters.yesterdayTime.string(from: date)
+        }
+        return ConversationFormatters.fullDateTime.string(from: date)
     }
+}
+
+// MARK: - Shared Formatters
+
+/// `DateFormatter` construction costs ~0.05 ms. Built per row it added tens of
+/// milliseconds to every render pass of a long conversation, so the formatters
+/// are created once and reused. Main-actor isolated because `DateFormatter` is
+/// not thread-safe.
+@MainActor
+enum ConversationFormatters {
+    static let time: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "h:mm a"
+        return formatter
+    }()
+
+    static let yesterdayTime: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "'Yesterday' h:mm a"
+        return formatter
+    }()
+
+    static let fullDateTime: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d, yyyy h:mm a"
+        return formatter
+    }()
 }
 
 // MARK: - Message View
@@ -407,9 +492,7 @@ private struct MessageView: View {
     }
 
     private var formattedTime: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "h:mm a"
-        return formatter.string(from: message.timestamp)
+        ConversationFormatters.time.string(from: message.timestamp)
     }
 }
 
@@ -553,6 +636,21 @@ private struct ToolResultBlockView: View {
 private struct RawMessageView: View {
     let message: ParsedMessage
 
+    /// A single transcript line can carry a multi-megabyte payload (pasted
+    /// images arrive base64-encoded). Laying that out as one `Text` blocks the
+    /// main thread for seconds, so Raw mode shows a bounded prefix. The Copy
+    /// button still copies the whole record.
+    static let rawDisplayLimit = 20_000
+
+    private var displayedJSON: String {
+        // `utf8.count` is O(1); `count` walks the whole string, which defeats
+        // the point of the guard on exactly the records it is here to catch.
+        let byteLength = message.rawJSON.utf8.count
+        guard byteLength > Self.rawDisplayLimit else { return message.rawJSON }
+        return String(message.rawJSON.prefix(Self.rawDisplayLimit))
+            + "\n\n… \(byteLength - Self.rawDisplayLimit) more bytes — use Copy raw JSON for the full record."
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
@@ -581,7 +679,7 @@ private struct RawMessageView: View {
                 .help("Copy raw JSON")
             }
 
-            Text(message.rawJSON)
+            Text(displayedJSON)
                 .font(.system(.caption, design: .monospaced))
                 .textSelection(.enabled)
                 .padding(8)

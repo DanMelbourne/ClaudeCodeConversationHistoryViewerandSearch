@@ -29,6 +29,25 @@
 		E10000010000000000000022 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E20000010000000000000022; };
 		E10000010000000000000030 /* CrashReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E20000010000000000000030; };
 		E10000010000000000000031 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = E20000010000000000000031; };
+		E10000010000000000000040 /* ConversationExportServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E20000010000000000000040; };
+		E10000010000000000000041 /* ConversationExportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E20000010000000000000042; };
+		E10000010000000000000042 /* AppViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E20000010000000000000043; };
+		E10000010000000000000043 /* FileWatcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E20000010000000000000044; };
+		E10000010000000000000044 /* CrashReporterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E20000010000000000000045; };
+		EB0000000000000000000901 /* AgentKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000901 /* AgentKind.swift */; };
+		EB0000000000000000000902 /* AgentMessageBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000902 /* AgentMessageBuilder.swift */; };
+		EB0000000000000000000903 /* CodexHistoryProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000903 /* CodexHistoryProvider.swift */; };
+		EB0000000000000000000904 /* CursorHistoryProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000904 /* CursorHistoryProvider.swift */; };
+		EB0000000000000000000905 /* AgentBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000905 /* AgentBadge.swift */; };
+		EB0000000000000000000906 /* CodexHistoryProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000906 /* CodexHistoryProviderTests.swift */; };
+		EB0000000000000000000907 /* CursorHistoryProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000907 /* CursorHistoryProviderTests.swift */; };
+		EB0000000000000000000908 /* AgentIndexingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000908 /* AgentIndexingTests.swift */; };
+		EB0000000000000000000A01 /* IncrementalIndexingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000A01 /* IncrementalIndexingTests.swift */; };
+		EB0000000000000000000909 /* IndexMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000909 /* IndexMigrationTests.swift */; };
+		EB0000000000000000000910 /* RenderPerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA0000000000000000000910 /* RenderPerformanceTests.swift */; };
+		EB000000000000000000090A /* BuildStampView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA000000000000000000090A /* BuildStampView.swift */; };
+		EB000000000000000000090B /* BuildInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA000000000000000000090B /* BuildInfo.swift */; };
+		EB000000000000000000090C /* BuildInfoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA000000000000000000090C /* BuildInfoTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -56,6 +75,26 @@
 		E20000010000000000000021 /* SourcesManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourcesManagerView.swift; sourceTree = "<group>"; };
 		E20000010000000000000022 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		E20000010000000000000030 /* CrashReporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashReporter.swift; sourceTree = "<group>"; };
+		E20000010000000000000040 /* ConversationExportServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationExportServiceTests.swift; sourceTree = "<group>"; };
+		E20000010000000000000041 /* ClaudeCodeCompanionTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ClaudeCodeCompanionTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		E20000010000000000000042 /* ConversationExportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationExportService.swift; sourceTree = "<group>"; };
+		E20000010000000000000043 /* AppViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppViewModelTests.swift; sourceTree = "<group>"; };
+		E20000010000000000000044 /* FileWatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileWatcherTests.swift; sourceTree = "<group>"; };
+		E20000010000000000000045 /* CrashReporterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashReporterTests.swift; sourceTree = "<group>"; };
+		EA0000000000000000000901 /* AgentKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentKind.swift"; sourceTree = "<group>"; };
+		EA0000000000000000000902 /* AgentMessageBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Agents/AgentMessageBuilder.swift"; sourceTree = "<group>"; };
+		EA0000000000000000000903 /* CodexHistoryProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Agents/CodexHistoryProvider.swift"; sourceTree = "<group>"; };
+		EA0000000000000000000904 /* CursorHistoryProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Agents/CursorHistoryProvider.swift"; sourceTree = "<group>"; };
+		EA0000000000000000000905 /* AgentBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentBadge.swift"; sourceTree = "<group>"; };
+		EA0000000000000000000906 /* CodexHistoryProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CodexHistoryProviderTests.swift"; sourceTree = "<group>"; };
+		EA0000000000000000000907 /* CursorHistoryProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CursorHistoryProviderTests.swift"; sourceTree = "<group>"; };
+		EA0000000000000000000908 /* AgentIndexingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentIndexingTests.swift"; sourceTree = "<group>"; };
+		EA0000000000000000000A01 /* IncrementalIndexingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "IncrementalIndexingTests.swift"; sourceTree = "<group>"; };
+		EA0000000000000000000909 /* IndexMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "IndexMigrationTests.swift"; sourceTree = "<group>"; };
+		EA0000000000000000000910 /* RenderPerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RenderPerformanceTests.swift"; sourceTree = "<group>"; };
+		EA000000000000000000090A /* BuildStampView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BuildStampView.swift"; sourceTree = "<group>"; };
+		EA000000000000000000090B /* BuildInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BuildInfo.swift"; sourceTree = "<group>"; };
+		EA000000000000000000090C /* BuildInfoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BuildInfoTests.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -67,6 +106,12 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		E30000010000000000000002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = ();
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -74,6 +119,7 @@
 			isa = PBXGroup;
 			children = (
 				E40000010000000000000001 /* ClaudeCodeCompanion */,
+				E40000010000000000000020 /* ClaudeCodeCompanionTests */,
 				E40000010000000000000099 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -82,8 +128,27 @@
 			isa = PBXGroup;
 			children = (
 				E20000010000000000000000 /* ClaudeCodeCompanion.app */,
+				E20000010000000000000041 /* ClaudeCodeCompanionTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		E40000010000000000000020 /* ClaudeCodeCompanionTests */ = {
+			isa = PBXGroup;
+			children = (
+				EA000000000000000000090C /* BuildInfoTests.swift */,
+				EA0000000000000000000909 /* IndexMigrationTests.swift */,
+				EA0000000000000000000910 /* RenderPerformanceTests.swift */,
+				EA0000000000000000000A01 /* IncrementalIndexingTests.swift */,
+				EA0000000000000000000906 /* CodexHistoryProviderTests.swift */,
+				EA0000000000000000000907 /* CursorHistoryProviderTests.swift */,
+				EA0000000000000000000908 /* AgentIndexingTests.swift */,
+				E20000010000000000000040 /* ConversationExportServiceTests.swift */,
+				E20000010000000000000043 /* AppViewModelTests.swift */,
+				E20000010000000000000044 /* FileWatcherTests.swift */,
+				E20000010000000000000045 /* CrashReporterTests.swift */,
+			);
+			path = ClaudeCodeCompanionTests;
 			sourceTree = "<group>";
 		};
 		E40000010000000000000001 /* ClaudeCodeCompanion */ = {
@@ -103,6 +168,7 @@
 		E40000010000000000000002 /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				EA0000000000000000000901 /* AgentKind.swift */,
 				E20000010000000000000003 /* ConversationModels.swift */,
 				E20000010000000000000020 /* ConversationSource.swift */,
 			);
@@ -120,6 +186,8 @@
 		E40000010000000000000004 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				EA000000000000000000090A /* BuildStampView.swift */,
+				EA0000000000000000000905 /* AgentBadge.swift */,
 				E20000010000000000000002 /* ContentView.swift */,
 				E20000010000000000000017 /* DetailView.swift */,
 				E40000010000000000000006 /* Sidebar */,
@@ -143,6 +211,11 @@
 		E40000010000000000000005 /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				EA000000000000000000090B /* BuildInfo.swift */,
+				EA0000000000000000000902 /* AgentMessageBuilder.swift */,
+				EA0000000000000000000903 /* CodexHistoryProvider.swift */,
+				EA0000000000000000000904 /* CursorHistoryProvider.swift */,
+				E20000010000000000000042 /* ConversationExportService.swift */,
 				E20000010000000000000004 /* JSONLParser.swift */,
 				E20000010000000000000005 /* DatabaseManager.swift */,
 				E20000010000000000000006 /* ConversationStore.swift */,
@@ -205,6 +278,16 @@
 		};
 /* End PBXGroup section */
 
+/* Begin PBXContainerItemProxy section */
+		E40000010000000000000021 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E80000010000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E50000010000000000000001;
+			remoteInfo = ClaudeCodeCompanion;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXNativeTarget section */
 		E60000010000000000000002 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
@@ -234,7 +317,31 @@
 			productReference = E20000010000000000000000 /* ClaudeCodeCompanion.app */;
 			productType = "com.apple.product-type.application";
 		};
+		E50000010000000000000002 /* ClaudeCodeCompanionTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E70000010000000000000004 /* Build configuration list for PBXNativeTarget "ClaudeCodeCompanionTests" */;
+			buildPhases = (
+				E60000010000000000000003 /* Sources */,
+				E30000010000000000000002 /* Frameworks */,
+			);
+			buildRules = ();
+			dependencies = (
+				E40000010000000000000022 /* PBXTargetDependency */,
+			);
+			name = ClaudeCodeCompanionTests;
+			productName = ClaudeCodeCompanionTests;
+			productReference = E20000010000000000000041 /* ClaudeCodeCompanionTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
+
+/* Begin PBXTargetDependency section */
+		E40000010000000000000022 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E50000010000000000000001 /* ClaudeCodeCompanion */;
+			targetProxy = E40000010000000000000021 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin PBXProject section */
 		E80000010000000000000001 /* Project object */ = {
@@ -266,6 +373,7 @@
 			);
 			targets = (
 				E50000010000000000000001 /* ClaudeCodeCompanion */,
+				E50000010000000000000002 /* ClaudeCodeCompanionTests */,
 			);
 		};
 /* End PBXProject section */
@@ -275,6 +383,13 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				EB000000000000000000090A /* BuildStampView.swift in Sources */,
+				EB000000000000000000090B /* BuildInfo.swift in Sources */,
+				EB0000000000000000000901 /* AgentKind.swift in Sources */,
+				EB0000000000000000000902 /* AgentMessageBuilder.swift in Sources */,
+				EB0000000000000000000903 /* CodexHistoryProvider.swift in Sources */,
+				EB0000000000000000000904 /* CursorHistoryProvider.swift in Sources */,
+				EB0000000000000000000905 /* AgentBadge.swift in Sources */,
 				E10000010000000000000001 /* ClaudeCodeCompanionApp.swift in Sources */,
 				E10000010000000000000002 /* ContentView.swift in Sources */,
 				E10000010000000000000003 /* ConversationModels.swift in Sources */,
@@ -295,6 +410,25 @@
 				E10000010000000000000020 /* ConversationSource.swift in Sources */,
 				E10000010000000000000021 /* SourcesManagerView.swift in Sources */,
 				E10000010000000000000030 /* CrashReporter.swift in Sources */,
+				E10000010000000000000041 /* ConversationExportService.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E60000010000000000000003 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				EB000000000000000000090C /* BuildInfoTests.swift in Sources */,
+				EB0000000000000000000909 /* IndexMigrationTests.swift in Sources */,
+				EB0000000000000000000910 /* RenderPerformanceTests.swift in Sources */,
+				EB0000000000000000000A01 /* IncrementalIndexingTests.swift in Sources */,
+				EB0000000000000000000906 /* CodexHistoryProviderTests.swift in Sources */,
+				EB0000000000000000000907 /* CursorHistoryProviderTests.swift in Sources */,
+				EB0000000000000000000908 /* AgentIndexingTests.swift in Sources */,
+				E10000010000000000000040 /* ConversationExportServiceTests.swift in Sources */,
+				E10000010000000000000042 /* AppViewModelTests.swift in Sources */,
+				E10000010000000000000043 /* FileWatcherTests.swift in Sources */,
+				E10000010000000000000044 /* CrashReporterTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -406,6 +540,34 @@
 			};
 			name = Release;
 		};
+		E90000010000000000000005 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.danwarnemail.ClaudeCodeCompanionTests;
+				PRODUCT_MODULE_NAME = ClaudeCodeCompanionTests;
+				PRODUCT_NAME = ClaudeCodeCompanionTests;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Claude Code Companion.app/Contents/MacOS/Claude Code Companion";
+			};
+			name = Debug;
+		};
+		E90000010000000000000006 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.danwarnemail.ClaudeCodeCompanionTests;
+				PRODUCT_MODULE_NAME = ClaudeCodeCompanionTests;
+				PRODUCT_NAME = ClaudeCodeCompanionTests;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Claude Code Companion.app/Contents/MacOS/Claude Code Companion";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -423,6 +585,15 @@
 			buildConfigurations = (
 				E90000010000000000000003 /* Debug */,
 				E90000010000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		E70000010000000000000004 /* Build configuration list for PBXNativeTarget "ClaudeCodeCompanionTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E90000010000000000000005 /* Debug */,
+				E90000010000000000000006 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

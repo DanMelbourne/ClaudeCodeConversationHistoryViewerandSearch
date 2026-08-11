@@ -15,6 +15,28 @@ struct ContentView: View {
         } detail: {
             DetailView()
         }
+        .alert(
+            "Conversation Unavailable",
+            isPresented: Binding(
+                get: { appViewModel.navigationErrorMessage != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        appViewModel.navigationErrorMessage = nil
+                    }
+                }
+            )
+        ) {
+            if appViewModel.unavailableSearchResult != nil {
+                Button("View Cached Copy") {
+                    appViewModel.viewCachedConversation()
+                }
+            }
+            Button("OK", role: .cancel) {
+                appViewModel.navigationErrorMessage = nil
+            }
+        } message: {
+            Text(appViewModel.navigationErrorMessage ?? "")
+        }
         .toolbar(id: "mainToolbar") {
             // Search field
             ToolbarItem(id: "search", placement: .automatic) {
@@ -60,6 +82,13 @@ struct ContentView: View {
                 .pickerStyle(.menu)
                 .frame(width: 140)
                 .help("Search scope")
+                .onChange(of: appViewModel.searchScope) { _, _ in
+                    // Re-run the search so the new scope takes effect immediately.
+                    guard !appViewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                    Task { @MainActor in
+                        await appViewModel.immediateSearch()
+                    }
+                }
             }
 
             // Mode toggle

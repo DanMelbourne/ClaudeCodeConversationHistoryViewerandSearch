@@ -10,11 +10,34 @@ struct SourcesManagerView: View {
         VStack(spacing: 0) {
             header
             Divider()
+            agentsSection
+            Divider()
             sourcesList
             Divider()
             footer
         }
-        .frame(width: 520, height: 380)
+        .frame(width: 520, height: 470)
+    }
+
+    // MARK: - Agents
+
+    private var agentsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Coding Agents")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+
+            ForEach(AgentKind.allCases) { agent in
+                AgentToggleRow(
+                    agent: agent,
+                    isOn: appViewModel.enabledAgents.contains(agent),
+                    isBusy: appViewModel.isIndexing,
+                    onChange: { appViewModel.setAgent(agent, enabled: $0) }
+                )
+            }
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 10)
     }
 
     // MARK: - Header
@@ -43,6 +66,7 @@ struct SourcesManagerView: View {
     }
 
     // MARK: - Sources List
+    // (Agent toggles live above; sources below are extra Claude Code folders.)
 
     private var sourcesList: some View {
         Group {
@@ -126,12 +150,12 @@ struct SourcesManagerView: View {
         panel.allowsMultipleSelection = false
         panel.canCreateDirectories = false
         panel.showsHiddenFiles = true
-        panel.level = .modalPanel
-
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-
-        let name = suggestName(for: url)
-        appViewModel.addSource(name: name, path: url.path)
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
+        panel.beginSheetModal(for: window) { response in
+            guard response == .OK, let url = panel.url else { return }
+            let name = suggestName(for: url)
+            appViewModel.addSource(name: name, path: url.path)
+        }
     }
 
     private func suggestName(for url: URL) -> String {
@@ -145,6 +169,60 @@ struct SourcesManagerView: View {
         }
         // Otherwise use the parent folder name
         return url.deletingLastPathComponent().lastPathComponent
+    }
+}
+
+// MARK: - Agent Toggle Row
+
+private struct AgentToggleRow: View {
+    let agent: AgentKind
+    let isOn: Bool
+    let isBusy: Bool
+    let onChange: (Bool) -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: agent.symbolName)
+                .frame(width: 18)
+                .foregroundStyle(isInstalled ? DesignConstants.accentColor : .secondary)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(agent.displayName)
+                    .font(.subheadline)
+                Text(statusText)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Toggle("", isOn: Binding(get: { isOn }, set: onChange))
+                .labelsHidden()
+                .disabled(agent == .claude || isBusy || !isInstalled)
+                .help(toggleHelp)
+        }
+    }
+
+    private var isInstalled: Bool {
+        switch agent {
+        case .cursor:
+            return CursorHistoryProvider.isAvailable()
+        default:
+            return FileManager.default.fileExists(atPath: agent.defaultHistoryLocation.path)
+        }
+    }
+
+    private var statusText: String {
+        guard isInstalled else { return "No history found on this Mac" }
+        return agent.defaultHistoryLocation.path
+            .replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~")
+    }
+
+    private var toggleHelp: String {
+        if agent == .claude { return "Always included" }
+        if !isInstalled { return "Not installed" }
+        return isOn ? "Stop indexing" : "Index this agent"
     }
 }
 
