@@ -107,6 +107,10 @@ if [ ! -d "$BUILT_APP" ]; then
     exit 1
 fi
 
+# Upload the exact executable's dSYM before the app is installed and launched.
+# dSYMs are keyed by LC_UUID, which is unchanged by the later signing step.
+./scripts/sentry_dsyms.sh "$BUILT_APP/Contents/MacOS/$APP_NAME" || true
+
 # ------------------------------------------------------------------- install
 
 if pgrep -f "$APP_DIR/Contents/MacOS/" >/dev/null 2>&1; then

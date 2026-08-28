@@ -15,7 +15,7 @@ struct ConversationView: View {
             } else if appViewModel.isLoadingMessages {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if appViewModel.messages.isEmpty {
+            } else if !appViewModel.hasMessages {
                 emptyConversation
             } else {
                 conversationContent
@@ -46,12 +46,10 @@ struct ConversationView: View {
 
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        // `rows` is built once per body evaluation. Reading a
-                        // computed `filteredMessages` from inside the ForEach
-                        // body re-filtered the whole message array for every
-                        // visible row, which is O(n²) per render pass and is
-                        // one of the main-thread stalls Sentry reports.
-                        ForEach(rows, id: \.message.id) { row in
+                        // The view model publishes this projection only when
+                        // the conversation or system-message setting changes.
+                        // `body` therefore never re-scans the transcript.
+                        ForEach(appViewModel.displayedMessageRows) { row in
                             if row.showsDateDivider {
                                 DateDivider(date: row.message.timestamp)
                                     .padding(.vertical, 8)
@@ -191,13 +189,13 @@ struct ConversationView: View {
             return
         }
 
-        let messages = filteredMessages
+        let rows = appViewModel.displayedMessageRows
         localSearchTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(200))
             guard !Task.isCancelled else { return }
 
             let matches = await Task.detached(priority: .userInitiated) {
-                Self.matchingMessageIDs(in: messages, query: query)
+                Self.matchingMessageIDs(in: rows, query: query)
             }.value
 
             guard !Task.isCancelled else { return }
@@ -208,8 +206,9 @@ struct ConversationView: View {
     }
 
     /// Pure and static so it runs off the main actor and is unit testable.
-    nonisolated static func matchingMessageIDs(in messages: [ParsedMessage], query: String) -> [String] {
-        messages.compactMap { message in
+    nonisolated static func matchingMessageIDs(in rows: [ConversationDisplayRow], query: String) -> [String] {
+        rows.compactMap { row in
+            let message = row.message
             let matches = message.blocks.contains { block in
                 switch block {
                 case .text(let s), .thinking(let s), .toolResult(let s):
@@ -244,7 +243,14 @@ struct ConversationView: View {
     // MARK: - System Message Toggle
 
     private var systemMessageToggle: some View {
-        Toggle(isOn: Bindable(appViewModel).showSystemMessages) {
+        Toggle(isOn: Binding(
+            get: { appViewModel.showSystemMessages },
+            set: { value in
+                Task { @MainActor in
+                    await appViewModel.setShowSystemMessages(value)
+                }
+            }
+        )) {
             Label("System", systemImage: "eye")
                 .font(.caption)
         }
@@ -252,42 +258,6 @@ struct ConversationView: View {
         .buttonStyle(.bordered)
         .controlSize(.small)
         .help("Show or hide system messages")
-    }
-
-    // MARK: - Rows
-
-    /// One rendered row: the message plus whether a date divider precedes it.
-    /// Divider placement is resolved here, in a single pass, so no row has to
-    /// reach back into the full message list to decide.
-    struct MessageRow {
-        let message: ParsedMessage
-        let showsDateDivider: Bool
-    }
-
-    private var filteredMessages: [ParsedMessage] {
-        if appViewModel.showSystemMessages {
-            return appViewModel.messages
-        }
-        return appViewModel.messages.filter { $0.type != .system }
-    }
-
-    private var rows: [MessageRow] {
-        Self.makeRows(from: filteredMessages)
-    }
-
-    /// Pure and static so it can be unit tested without a view hierarchy.
-    static func makeRows(from messages: [ParsedMessage]) -> [MessageRow] {
-        var rows: [MessageRow] = []
-        rows.reserveCapacity(messages.count)
-        var previousTimestamp: Date?
-        for message in messages {
-            let showsDivider = previousTimestamp.map {
-                message.timestamp.timeIntervalSince($0) > 1800 // 30 minutes
-            } ?? false
-            rows.append(MessageRow(message: message, showsDateDivider: showsDivider))
-            previousTimestamp = message.timestamp
-        }
-        return rows
     }
 
     // MARK: - Empty States

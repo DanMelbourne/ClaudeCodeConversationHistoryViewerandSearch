@@ -28,6 +28,7 @@ check "verifies installed version matches"  'grep -q "does not match this build"
 check "verifies binary is newer than source" 'grep -q "older than the Swift sources" build.sh'
 check "re-registers with LaunchServices"    'grep -q "lsregister" build.sh'
 check "warns about stale copies"            'grep -q "Older copy still on disk" build.sh'
+check "uploads dSYMs for every installed build" 'grep -q "scripts/sentry_dsyms.sh" build.sh'
 
 echo "scripts/verify-build-base.sh"
 check "is executable"                       'test -x scripts/verify-build-base.sh'
@@ -61,13 +62,21 @@ check "rises with the commit count"         '
         || test "$(compute_build_number "$PWD")" -eq "$BUILD_NUMBER_FLOOR"'
 check "stamps provenance before signing"     'grep -q "stamp_key CCCBuildSourceCommit" dist.sh'
 check "stamps the build date"                'grep -q "stamp_key CCCBuildDate" dist.sh'
+check "uploads dSYMs for every release"      'grep -q "scripts/sentry_dsyms.sh" dist.sh'
+
+echo "scripts/sentry_dsyms.sh"
+check "is executable"                       'test -x scripts/sentry_dsyms.sh'
+check "uses the Code Companion Sentry project" 'grep -q "code-companion" scripts/sentry_dsyms.sh'
+check "reads credentials from Keychain"      'grep -q "security find-generic-password" scripts/sentry_dsyms.sh'
+check "does not upload sources by default"   'grep -q "SENTRY_INCLUDE_SOURCES:-0" scripts/sentry_dsyms.sh'
+check "braces variables before Unicode output" 'grep -q "\${SENTRY_ORG}/\${SENTRY_PROJECT}" scripts/sentry_dsyms.sh'
 
 echo "app reads the stamps"
 check "BuildInfo reads CCCBuildDate"        'grep -q "CCCBuildDate" ClaudeCodeCompanion/ClaudeCodeCompanion/Services/BuildInfo.swift'
 check "sidebar shows the build stamp"       'grep -q "BuildStampView" ClaudeCodeCompanion/ClaudeCodeCompanion/Views/Sidebar/SidebarView.swift'
 
 echo "shell syntax"
-for script in build.sh dist.sh scripts/verify-build-base.sh scripts/build-number.sh; do
+for script in build.sh dist.sh scripts/verify-build-base.sh scripts/build-number.sh scripts/sentry_dsyms.sh; do
     check "$script parses" "bash -n $script"
 done
 

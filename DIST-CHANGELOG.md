@@ -2,6 +2,8 @@
 
 ## Unreleased — 2026-08-11
 
+- Long conversations stay responsive while the rest of the window updates.
+
 - Fixed freezes when viewing long conversations. Messages containing ordinary underscored words could lock the app up for several seconds each; they now render immediately.
 - Scrolling a long conversation is smooth, and typing in "Find in conversation" no longer stalls.
 - Bold text placed on the same line as inline code now renders correctly instead of showing the asterisks.

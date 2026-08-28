@@ -3,6 +3,24 @@ import XCTest
 
 @MainActor
 final class AppViewModelTests: XCTestCase {
+    func testDisplayedRowsAreBuiltWhenMessagesArePublished() async {
+        let viewModel = AppViewModel()
+        let start = Date(timeIntervalSince1970: 1_000)
+
+        await viewModel.setMessagesForDisplay([
+            makeParsedMessage(id: "user", type: .user, timestamp: start),
+            makeParsedMessage(id: "system", type: .system, timestamp: start.addingTimeInterval(60)),
+            makeParsedMessage(id: "later", type: .assistant, timestamp: start.addingTimeInterval(3_600))
+        ])
+
+        XCTAssertEqual(viewModel.displayedMessageRows.map(\.message.id), ["user", "later"])
+        XCTAssertTrue(viewModel.displayedMessageRows[1].showsDateDivider)
+
+        await viewModel.setShowSystemMessages(true)
+        XCTAssertEqual(viewModel.displayedMessageRows.map(\.message.id), ["user", "system", "later"])
+        XCTAssertTrue(viewModel.displayedMessageRows[2].showsDateDivider)
+    }
+
     func testMergingIndexedSessionsNeverHidesFilesystemSessions() {
         let filesystemSession = ConversationSession(
             id: "claude-session",
@@ -136,6 +154,20 @@ final class AppViewModelTests: XCTestCase {
             parentUuid: nil,
             cwd: nil,
             gitBranch: nil
+        )
+    }
+
+    private func makeParsedMessage(
+        id: String,
+        type: ConversationMessage.MessageType,
+        timestamp: Date
+    ) -> ParsedMessage {
+        ParsedMessage(
+            id: id,
+            type: type,
+            timestamp: timestamp,
+            blocks: [.text(id)],
+            rawJSON: "{}"
         )
     }
 

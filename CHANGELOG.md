@@ -2,6 +2,9 @@
 
 ## Unreleased — 2026-08-11
 
+- **Conversation rendering no longer rebuilds the whole message projection during scrolling or unrelated interface updates.** The visible rows are prepared once when a conversation changes, which removes another source of long UI stalls on very large histories.
+- **Every app build now sends its crash and hang symbols to Sentry when the local Keychain credential is available.** Remaining reports will identify the responsible app code instead of anonymous frames.
+
 App-hang fixes. Sentry was reporting frequent app hangs (threshold: main thread blocked > 2 s). Root-caused by measurement against real transcripts, not by inspection.
 
 - **Inline markdown parsing was superlinear.** The parser retried five unbounded regexes against the whole remaining string once per unmatched trigger character (`` ` ``, `*`, `_`, `[`). Ordinary prose containing `snake_case` identifiers hit it constantly. Measured on a real 16 KB transcript line with 792 underscores: **7,875 ms → 28 ms**. It now makes one left-to-right `matches(of:)` pass with a single alternation whose inner patterns are newline-free and length-capped, so a lone delimiter fails inside a fixed window instead of backtracking to the end of the line.

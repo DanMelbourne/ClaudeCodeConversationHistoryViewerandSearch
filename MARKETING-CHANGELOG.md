@@ -2,6 +2,8 @@
 
 ## August 11, 2026
 
+- Long conversations stay responsive while the rest of the window updates.
+
 - Long conversations no longer freeze. Scrolling is smooth and searching within a conversation keeps up with your typing.
 - Formatting fix: bold text next to inline code now looks right.
 - Conversations containing pasted images open instantly in Raw view.

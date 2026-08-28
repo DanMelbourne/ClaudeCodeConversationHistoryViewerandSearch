@@ -81,8 +81,11 @@ No API tokens or external services. All data is local.
 | `./scripts/verify-build-base.sh` | Ancestry guard: not behind `origin/main`, never moves the install backwards. Override: `CCC_ALLOW_STALE_BASE=1`. |
 | `./scripts/test_build_script.sh` | Guards the pipeline's disciplines. |
 | `./dist.sh` | Signed + notarized DMG, same version rule and stamps. |
+| `./scripts/sentry_dsyms.sh` | Best-effort dSYM upload for every normal or distribution build. |
 
 Bundle keys stamped at build time and read by `BuildInfo`: `CCCBuildDate`, `CCCBuildSourceBranch`, `CCCBuildSourceCommit`, `CCCBuildDirty`, `CCCBuildConfiguration`. `CFBundleVersion` = `git rev-list --count HEAD`; `CFBundleShortVersionString` = `MAJOR.MINOR.<count>` (bump MAJOR.MINOR by hand in `Resources/Info.plist`). Both are passed to `xcodebuild` as `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION`, which override the plist file under `GENERATE_INFOPLIST_FILE`.
+
+Sentry symbols are uploaded to the `trulyuseful/code-companion` project from both `build.sh` and `dist.sh`. The token is read at run time from the login Keychain service `code-companion-sentry`, account `auth-token`; it is never stored in the repository. `SENTRY_INCLUDE_SOURCES=1` is opt-in because symbols alone resolve application frames without sending source files.
 
 ## Build
 

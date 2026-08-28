@@ -92,7 +92,7 @@ struct ConversationMessage: Identifiable, Hashable {
     let gitBranch: String?
     var agent: AgentKind = .claude
 
-    enum MessageType: String, Codable, Hashable {
+    enum MessageType: String, Codable, Hashable, Sendable {
         case user
         case assistant
         case system
@@ -113,7 +113,7 @@ struct ConversationMessage: Identifiable, Hashable {
 // MARK: - ContentBlock
 
 /// Structured content blocks for rich rendering
-enum ContentBlock: Hashable {
+enum ContentBlock: Hashable, Sendable {
     case text(String)
     case thinking(String)
     case toolUse(name: String, inputJSON: String)
@@ -123,12 +123,45 @@ enum ContentBlock: Hashable {
 // MARK: - ParsedMessage
 
 /// Parsed message with structured content for rendering
-struct ParsedMessage: Identifiable {
+struct ParsedMessage: Identifiable, Sendable {
     let id: String
     let type: ConversationMessage.MessageType
     let timestamp: Date
     let blocks: [ContentBlock]
     let rawJSON: String
+}
+
+/// The flat, already-filtered projection consumed by the conversation list.
+/// Keeping this outside a SwiftUI `body` prevents a complete transcript scan on
+/// every scroll and layout pass.
+struct ConversationDisplayRow: Identifiable, Sendable {
+    let message: ParsedMessage
+    let showsDateDivider: Bool
+
+    var id: String { message.id }
+}
+
+enum ConversationDisplayRowBuilder {
+    /// Resolve filtering and divider placement exactly once whenever a
+    /// conversation changes, not once for each SwiftUI body evaluation.
+    static func makeRows(
+        from messages: [ParsedMessage],
+        showSystemMessages: Bool = true
+    ) -> [ConversationDisplayRow] {
+        var rows: [ConversationDisplayRow] = []
+        rows.reserveCapacity(messages.count)
+        var previousTimestamp: Date?
+
+        for message in messages {
+            guard showSystemMessages || message.type != .system else { continue }
+            let showsDivider = previousTimestamp.map {
+                message.timestamp.timeIntervalSince($0) > 1_800
+            } ?? false
+            rows.append(ConversationDisplayRow(message: message, showsDateDivider: showsDivider))
+            previousTimestamp = message.timestamp
+        }
+        return rows
+    }
 }
 
 // MARK: - SearchResult

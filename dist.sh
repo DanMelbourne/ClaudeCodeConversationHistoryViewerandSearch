@@ -92,6 +92,10 @@ if [ ! -d "$APP_PATH" ]; then
     exit 1
 fi
 
+# A release must never reach customers without the debug symbols Sentry needs
+# to turn app-hang addresses into source locations. This stays best-effort.
+./scripts/sentry_dsyms.sh "$APP_PATH/Contents/MacOS/$APP_NAME" || true
+
 # Stamp provenance before signing — editing Info.plist afterwards would break
 # the signature, and the app reads these keys for its build stamp.
 ARCHIVE_PLIST="$APP_PATH/Contents/Info.plist"

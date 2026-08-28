@@ -123,7 +123,7 @@ final class RenderPerformanceTests: XCTestCase {
     }
 
     func testDateDividerAppearsOnlyAfterALongGap() {
-        let rows = ConversationView.makeRows(from: [
+        let rows = ConversationDisplayRowBuilder.makeRows(from: [
             message(id: "a", offsetMinutes: 0),
             message(id: "b", offsetMinutes: 5),    // 5 min later — no divider
             message(id: "c", offsetMinutes: 60),   // 55 min later — divider
@@ -141,7 +141,7 @@ final class RenderPerformanceTests: XCTestCase {
         let messages = (0..<20_000).map { message(id: "\($0)", offsetMinutes: Double($0)) }
 
         let start = Date()
-        let rows = ConversationView.makeRows(from: messages)
+        let rows = ConversationDisplayRowBuilder.makeRows(from: messages)
         let elapsed = Date().timeIntervalSince(start)
 
         XCTAssertEqual(rows.count, messages.count)
@@ -158,14 +158,16 @@ final class RenderPerformanceTests: XCTestCase {
             ParsedMessage(id: "result", type: .user, timestamp: Date(), blocks: [.toolResult(content: "no match here")], rawJSON: "{}"),
         ]
 
-        let matches = ConversationView.matchingMessageIDs(in: messages, query: "needle")
+        let rows = ConversationDisplayRowBuilder.makeRows(from: messages, showSystemMessages: true)
+        let matches = ConversationView.matchingMessageIDs(in: rows, query: "needle")
 
         XCTAssertEqual(matches, ["text", "thinking", "tool"], "search is case-insensitive across every block kind")
     }
 
     func testLocalSearchWithNoMatchesReturnsEmpty() {
         let messages = [message(id: "a", offsetMinutes: 0)]
-        XCTAssertTrue(ConversationView.matchingMessageIDs(in: messages, query: "zzz-not-present").isEmpty)
+        let rows = ConversationDisplayRowBuilder.makeRows(from: messages, showSystemMessages: true)
+        XCTAssertTrue(ConversationView.matchingMessageIDs(in: rows, query: "zzz-not-present").isEmpty)
     }
 
     // MARK: - Line counting

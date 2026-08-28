@@ -45,7 +45,8 @@ final class AppViewModel {
 
     var projects: [Project] = []
     var sessions: [ConversationSession] = []
-    var messages: [ParsedMessage] = []
+    private(set) var messages: [ParsedMessage] = []
+    private(set) var displayedMessageRows: [ConversationDisplayRow] = []
     var isLoadingSessions: Bool = false
     var isLoadingMessages: Bool = false
     var exportErrorMessage: String?
@@ -118,6 +119,7 @@ final class AppViewModel {
     @ObservationIgnored private var fileWatchers: [FileWatcher] = []
     @ObservationIgnored private var watcherRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var watcherRefreshGeneration = UUID()
+    @ObservationIgnored private var displayedRowsGeneration = 0
 
     /// When true, the sidebar's onChange(of: selectedProject) should NOT reset
     /// the session or reload sessions — navigateToSearchResult handles it.
@@ -138,7 +140,7 @@ final class AppViewModel {
 
     // MARK: - System Messages
 
-    var showSystemMessages: Bool = false
+    private(set) var showSystemMessages: Bool = false
 
     // MARK: - In-Conversation Search
 
@@ -495,7 +497,7 @@ final class AppViewModel {
         // are checked for a missing transcript.
         if session.agent != .cursor,
            !FileManager.default.fileExists(atPath: session.filePath.path) {
-            messages = []
+            clearMessagesForDisplay()
             return
         }
 
@@ -506,11 +508,12 @@ final class AppViewModel {
 
         loadMessagesTask = Task.detached(priority: .userInitiated) { [weak self] in
             let parsed = Self.parseMessages(agent: agent, filePath: filePath, sessionId: sessionId)
+            guard let self, !Task.isCancelled else { return }
+            await self.setMessagesForDisplay(parsed)
             guard !Task.isCancelled else { return }
             await MainActor.run { [weak self] in
-                guard let self, !Task.isCancelled else { return }
-                self.messages = parsed
-                self.isLoadingMessages = false
+                guard !Task.isCancelled else { return }
+                self?.isLoadingMessages = false
             }
         }
     }
@@ -878,12 +881,17 @@ final class AppViewModel {
             )
             guard !Task.isCancelled else { return }
 
-            await MainActor.run { [weak self] in
-                guard let self, !Task.isCancelled else { return }
+            guard let self, !Task.isCancelled else { return }
+            let sessionsForDisplay = loadedSessions
+            await MainActor.run {
                 self.selectedProject = project
-                self.sessions = loadedSessions
+                self.sessions = sessionsForDisplay
                 self.selectedSession = session
-                self.messages = parsed
+            }
+            guard !Task.isCancelled else { return }
+            await self.setMessagesForDisplay(parsed)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
                 self.detailDestination = .conversation
             }
 
@@ -954,7 +962,7 @@ final class AppViewModel {
                 )
                 self.selectedProject = project
                 self.sessions = [recoveredSession] + diskSessions
-                self.messages = reconstructedMessages
+                await self.setMessagesForDisplay(reconstructedMessages)
                 self.cachedConversationSessionID = recoveredSession.id
                 self.cachedConversationNotice = "Cached copy — original JSONL unavailable"
                 self.selectedSession = recoveredSession
@@ -979,6 +987,50 @@ final class AppViewModel {
             )
         }
     }
+
+    /// Publish parsed content and its render projection together. The
+    /// projection is deliberately built off-main at the data-change boundary,
+    /// instead of from a SwiftUI body's scroll-time render path.
+    @MainActor
+    func setMessagesForDisplay(_ newMessages: [ParsedMessage]) async {
+        displayedRowsGeneration &+= 1
+        let generation = displayedRowsGeneration
+        let showSystemMessages = showSystemMessages
+        let rows = await Task.detached(priority: .userInitiated) {
+            ConversationDisplayRowBuilder.makeRows(
+                from: newMessages,
+                showSystemMessages: showSystemMessages
+            )
+        }.value
+        guard !Task.isCancelled, generation == displayedRowsGeneration else { return }
+        messages = newMessages
+        displayedMessageRows = rows
+    }
+
+    @MainActor
+    func setShowSystemMessages(_ value: Bool) async {
+        guard showSystemMessages != value else { return }
+        displayedRowsGeneration &+= 1
+        let generation = displayedRowsGeneration
+        let currentMessages = messages
+        showSystemMessages = value
+        let rows = await Task.detached(priority: .userInitiated) {
+            ConversationDisplayRowBuilder.makeRows(
+                from: currentMessages,
+                showSystemMessages: value
+            )
+        }.value
+        guard generation == displayedRowsGeneration else { return }
+        displayedMessageRows = rows
+    }
+
+    private func clearMessagesForDisplay() {
+        displayedRowsGeneration &+= 1
+        messages = []
+        displayedMessageRows = []
+    }
+
+    var hasMessages: Bool { !messages.isEmpty }
 
 
     // MARK: - CLAUDE.md
