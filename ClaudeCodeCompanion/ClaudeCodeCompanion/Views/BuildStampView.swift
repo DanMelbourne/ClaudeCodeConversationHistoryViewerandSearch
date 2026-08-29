@@ -11,7 +11,13 @@ struct BuildStampView: View {
 
     @State private var now = Date()
 
-    private let tick = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
+    /// One clock for the process, not one per view init.
+    ///
+    /// As a stored `let`, this was rebuilt every time the struct was
+    /// re-created — which for a sidebar footer is every parent render — and
+    /// `onReceive` then cancelled the old run-loop timer and scheduled a new
+    /// one each time. A shared publisher is subscribed once and left alone.
+    private static let tick = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
 
     var body: some View {
         HStack(spacing: 6) {
@@ -41,7 +47,7 @@ struct BuildStampView: View {
         .padding(.vertical, 6)
         .contentShape(Rectangle())
         .help(info.detailText(now: now))
-        .onReceive(tick) { now = $0 }
+        .onReceive(Self.tick) { now = $0 }
         .onTapGesture {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(info.detailText(now: now), forType: .string)
