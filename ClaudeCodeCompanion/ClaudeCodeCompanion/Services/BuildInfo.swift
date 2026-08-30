@@ -78,9 +78,7 @@ struct BuildInfo: Equatable, Sendable {
         case ..<172_800: return "yesterday"
         case ..<2_592_000: return "\(seconds / 86_400) days ago"
         default:
-            let formatter = DateFormatter()
-            formatter.dateFormat = "d MMM yyyy"
-            return "on \(formatter.string(from: date))"
+            return "on \(absoluteDayFormatter.string(from: date))"
         }
     }
 
@@ -89,9 +87,8 @@ struct BuildInfo: Equatable, Sendable {
         var lines = ["\(versionLabel)"]
 
         if let buildDate {
-            let formatter = DateFormatter()
-            formatter.dateFormat = "EEE d MMM yyyy, h:mm a"
-            lines.append("Built \(formatter.string(from: buildDate)) — \(Self.relativeAge(from: buildDate, to: now))")
+            let stamp = Self.absoluteStampFormatter.string(from: buildDate)
+            lines.append("Built \(stamp) — \(Self.relativeAge(from: buildDate, to: now))")
         } else {
             lines.append("No build stamp — built from Xcode, not ./build.sh")
         }
@@ -116,6 +113,33 @@ struct BuildInfo: Equatable, Sendable {
     }
 
     // MARK: - Private
+
+    /// Built once for the life of the process, never per call.
+    ///
+    /// Sentry CODE-COMPANION-15: `BuildStampView.body` calls `detailText` on
+    /// every evaluation (it feeds `.help(...)`), and each call used to build a
+    /// fresh `DateFormatter`. The hang stack ends
+    /// `-[NSDateFormatter _regenerateFormatter]` → `__CreateCFDateFormatter` →
+    /// `udat_open` → `icu::Locale::init` — ICU locale construction, on the main
+    /// thread, inside a SwiftUI body getter.
+    ///
+    /// A `DateFormatter` is documented as safe to READ from multiple threads
+    /// once configured; both of these are fully configured inside their
+    /// initialiser and never mutated again, which is what makes a shared
+    /// instance correct here rather than merely faster.
+    private static let absoluteStampFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEE d MMM yyyy, h:mm a"
+        return formatter
+    }()
+
+    /// Only reached for builds older than 30 days, but the same defect: a
+    /// formatter per call, from a `body` getter.
+    private static let absoluteDayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "d MMM yyyy"
+        return formatter
+    }()
 
     private static func parseDate(_ string: String) -> Date? {
         let formatter = ISO8601DateFormatter()
