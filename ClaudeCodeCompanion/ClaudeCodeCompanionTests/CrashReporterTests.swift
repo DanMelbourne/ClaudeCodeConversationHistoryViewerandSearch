@@ -16,12 +16,14 @@ final class CrashReporterTests: XCTestCase {
         let first = CrashReporter.groupingFingerprint(
             mechanismType: CrashReporter.appHangMechanismType,
             releaseName: "com.danwarnemail.ClaudeCodeCompanion@1.0.62+62",
-            runID: "run-A"
+            runID: "run-A",
+            episode: 0
         )
         let second = CrashReporter.groupingFingerprint(
             mechanismType: CrashReporter.appHangMechanismType,
             releaseName: "com.danwarnemail.ClaudeCodeCompanion@1.0.62+62",
-            runID: "run-A"
+            runID: "run-A",
+            episode: 0
         )
         XCTAssertNotNil(first)
         XCTAssertEqual(first, second)
@@ -35,12 +37,14 @@ final class CrashReporterTests: XCTestCase {
             CrashReporter.groupingFingerprint(
                 mechanismType: CrashReporter.appHangMechanismType,
                 releaseName: "com.danwarnemail.ClaudeCodeCompanion@1.0.62+62",
-                runID: "run-A"
+                runID: "run-A",
+                episode: 0
             ),
             CrashReporter.groupingFingerprint(
                 mechanismType: CrashReporter.appHangMechanismType,
                 releaseName: "com.danwarnemail.ClaudeCodeCompanion@1.0.62+62",
-                runID: "run-B"
+                runID: "run-B",
+                episode: 0
             )
         )
     }
@@ -51,12 +55,14 @@ final class CrashReporterTests: XCTestCase {
         XCTAssertNil(CrashReporter.groupingFingerprint(
             mechanismType: "NSException",
             releaseName: "r",
-            runID: "run-A"
+            runID: "run-A",
+            episode: 0
         ))
         XCTAssertNil(CrashReporter.groupingFingerprint(
             mechanismType: nil,
             releaseName: "r",
-            runID: "run-A"
+            runID: "run-A",
+            episode: 0
         ))
     }
 
@@ -67,13 +73,56 @@ final class CrashReporterTests: XCTestCase {
             CrashReporter.groupingFingerprint(
                 mechanismType: CrashReporter.appHangMechanismType,
                 releaseName: "app@1.0.62+62",
-                runID: "run-A"
+                runID: "run-A",
+                episode: 0
             ),
             CrashReporter.groupingFingerprint(
                 mechanismType: CrashReporter.appHangMechanismType,
                 releaseName: "app@1.0.63+63",
-                runID: "run-A"
+                runID: "run-A",
+                episode: 0
             )
+        )
+    }
+
+
+    /// The defect the first version shipped, caught in review: this app stays
+    /// open for days, so fingerprinting per RUN merged a day of unrelated
+    /// stalls into one issue — the opposite failure to over-splitting, and it
+    /// hides root causes just as effectively.
+    func testHangsFarApartInOneRunAreDifferentEpisodes() {
+        let first = Date(timeIntervalSince1970: 1_000_000)
+        let later = first.addingTimeInterval(CrashReporter.hangEpisodeGap + 1)
+        XCTAssertEqual(
+            CrashReporter.episodeIndex(previousHangAt: first, currentIndex: 0, now: later),
+            1
+        )
+    }
+
+    /// The half that must survive that change: samples of ONE stall, about a
+    /// minute apart in the measured data, still collapse into one episode.
+    func testSamplesOfOneStallStayInOneEpisode() {
+        let first = Date(timeIntervalSince1970: 1_000_000)
+        var index = 0
+        var previous: Date?
+        for step in 0 ..< 9 {
+            let now = first.addingTimeInterval(Double(step) * 60)
+            index = CrashReporter.episodeIndex(previousHangAt: previous, currentIndex: index, now: now)
+            previous = now
+        }
+        XCTAssertEqual(index, 0, "Nine samples a minute apart are one episode, not nine")
+    }
+
+    /// A clock correction mid-session must not glue two episodes together.
+    func testClockGoingBackwardsStartsANewEpisode() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        XCTAssertEqual(
+            CrashReporter.episodeIndex(
+                previousHangAt: now.addingTimeInterval(3600),
+                currentIndex: 4,
+                now: now
+            ),
+            5
         )
     }
 
